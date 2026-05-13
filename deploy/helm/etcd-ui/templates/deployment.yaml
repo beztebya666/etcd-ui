@@ -1,0 +1,355 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "etcd-ui.fullname" . }}
+  labels: {{- include "etcd-ui.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "etcd-ui.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      annotations:
+        # Roll pods when values that don't touch the template change (e.g. CSP).
+        checksum/values: {{ tpl ($.Values | toYaml) . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        app.kubernetes.io/name: {{ include "etcd-ui.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "etcd-ui.serviceAccountName" . }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+        {{- with .Values.podSecurityContext }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: etcd-ui
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # --- logging ---
+            - { name: ETCD_UI_LOG_LEVEL,  value: {{ .Values.logging.level  | quote }} }
+            - { name: ETCD_UI_LOG_FORMAT, value: {{ .Values.logging.format | quote }} }
+            {{- with .Values.buildSHA }}
+            - { name: ETCD_UI_BUILD, value: {{ . | quote }} }
+            {{- end }}
+
+            # --- discovery ---
+            - name: ETCD_UI_K8S_DISCOVERY
+              value: {{ if .Values.discovery.kubernetes }}"auto"{{ else }}"off"{{ end }}
+            {{- with .Values.discovery.kubernetesSources }}
+            - { name: ETCD_UI_K8S_SOURCES, value: {{ toJson . | quote }} }
+            {{- end }}
+            {{- with .Values.discovery.patroniURLs }}
+            - { name: PATRONI_URLS, value: "{{ join "," . }}" }
+            {{- end }}
+            {{- with .Values.discovery.dnsSRV }}
+            - { name: ETCD_UI_DNS_SRV, value: {{ . | quote }} }
+            {{- end }}
+            {{- if gt (len .Values.clusters) 1 }}
+            - { name: CLUSTERS_FILE, value: /etc/etcd-ui/clusters.yaml }
+            {{- end }}
+
+            # --- first env-cluster (legacy single-cluster mode) ---
+            {{- if gt (len .Values.clusters) 0 }}
+            - { name: ETCD_ENDPOINTS,         value: {{ (index .Values.clusters 0).endpoints | quote }} }
+            - { name: ETCD_UI_CLUSTER_ID,     value: {{ (index .Values.clusters 0).id | quote }} }
+            - { name: ETCD_UI_CLUSTER_NAME,   value: {{ default (index .Values.clusters 0).id (index .Values.clusters 0).name | quote }} }
+            {{- with (index .Values.clusters 0).caFile }}
+            - { name: ETCD_CA_FILE,   value: {{ . | quote }} }
+            {{- end }}
+            {{- with (index .Values.clusters 0).certFile }}
+            - { name: ETCD_CERT_FILE, value: {{ . | quote }} }
+            {{- end }}
+            {{- with (index .Values.clusters 0).keyFile }}
+            - { name: ETCD_KEY_FILE,  value: {{ . | quote }} }
+            {{- end }}
+            {{- with (index .Values.clusters 0).username }}
+            - { name: ETCD_USERNAME,  value: {{ . | quote }} }
+            {{- end }}
+            {{- with (index .Values.clusters 0).password }}
+            - { name: ETCD_PASSWORD,  value: {{ . | quote }} }
+            {{- end }}
+            {{- if (index .Values.clusters 0).readOnly }}
+            - { name: ETCD_READONLY, value: "true" }
+            {{- end }}
+            {{- end }}
+
+            # --- read-only cluster IDs ---
+            {{- with .Values.readonlyClusters }}
+            - { name: ETCD_UI_READONLY_CLUSTERS, value: "{{ join "," . }}" }
+            {{- end }}
+
+            # --- scheduled snapshots ---
+            {{- with .Values.snapshotSchedule }}
+            - { name: ETCD_UI_SNAPSHOT_SCHEDULE, value: {{ . | quote }} }
+            {{- end }}
+
+            # --- hardening ---
+            {{- with .Values.hardening.corsOrigins }}
+            - { name: ETCD_UI_CORS_ORIGINS, value: {{ . | quote }} }
+            {{- end }}
+            - { name: ETCD_UI_RATE_RPS,   value: {{ .Values.hardening.rateRPS   | quote }} }
+            - { name: ETCD_UI_RATE_BURST, value: {{ .Values.hardening.rateBurst | quote }} }
+            {{- with .Values.hardening.csp }}
+            - { name: ETCD_UI_CSP, value: {{ . | quote }} }
+            {{- end }}
+            {{- if .Values.hardening.pprof }}
+            - { name: ETCD_UI_PPROF, value: "on" }
+            {{- end }}
+            {{- if .Values.etcdctl.enabled }}
+            - { name: ETCD_UI_ETCDCTL, value: "on" }
+            {{- end }}
+            {{- with .Values.etcdutl.maxMB }}
+            - { name: ETCD_UI_ETCDUTL_MAX_MB, value: {{ . | quote }} }
+            {{- end }}
+
+            # --- gateway TLS ---
+            {{- if .Values.gatewayTLS.enabled }}
+            - { name: ETCD_UI_TLS,      value: "on" }
+            - { name: ETCD_UI_TLS_CERT, value: "{{ .Values.gatewayTLS.mountPath }}/tls.crt" }
+            - { name: ETCD_UI_TLS_KEY,  value: "{{ .Values.gatewayTLS.mountPath }}/tls.key" }
+            {{- end }}
+
+            # --- auth ---
+            - { name: ETCD_UI_SESSION_TTL_SECONDS, value: {{ .Values.auth.sessionTTLSeconds | quote }} }
+            {{- if .Values.auth.existingSecretName }}
+            - name: AUTH_USERS
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.auth.existingSecretName }}, key: AUTH_USERS, optional: true }
+            - name: AUTH_SESSION_SECRET
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.auth.existingSecretName }}, key: AUTH_SESSION_SECRET, optional: true }
+            {{- else }}
+            {{- with .Values.auth.users }}
+            - { name: AUTH_USERS, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.auth.sessionSecret }}
+            - { name: AUTH_SESSION_SECRET, value: {{ . | quote }} }
+            {{- end }}
+            {{- end }}
+
+            # --- OIDC ---
+            {{- with .Values.oidc.issuer }}
+            - { name: ETCD_UI_OIDC_ISSUER,         value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.oidc.audience }}
+            - { name: ETCD_UI_OIDC_AUDIENCE,       value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.oidc.usernameClaim }}
+            - { name: ETCD_UI_OIDC_USERNAME_CLAIM, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.oidc.clientID }}
+            - { name: ETCD_UI_OIDC_CLIENT_ID,      value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.oidc.redirectURL }}
+            - { name: ETCD_UI_OIDC_REDIRECT_URL,   value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.oidc.scopes }}
+            - { name: ETCD_UI_OIDC_SCOPES,         value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.oidc.postLoginRedirect }}
+            - { name: ETCD_UI_OIDC_POST_LOGIN_REDIRECT, value: {{ . | quote }} }
+            {{- end }}
+            {{- if .Values.oidc.existingSecretName }}
+            - name: ETCD_UI_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.oidc.existingSecretName }}, key: ETCD_UI_OIDC_CLIENT_SECRET, optional: true }
+            {{- else }}
+            {{- with .Values.oidc.clientSecret }}
+            - { name: ETCD_UI_OIDC_CLIENT_SECRET,  value: {{ . | quote }} }
+            {{- end }}
+            {{- end }}
+
+            # --- per-cluster ACL ---
+            {{- if .Values.acl.existingConfigMapName }}
+            - { name: ETCD_UI_ACL_FILE, value: "/etc/etcd-ui-acl/acl.json" }
+            {{- else if .Values.acl.file }}
+            - { name: ETCD_UI_ACL_FILE, value: {{ .Values.acl.file | quote }} }
+            {{- else if .Values.acl.rules }}
+            - { name: ETCD_UI_ACL, value: {{ toJson .Values.acl.rules | quote }} }
+            {{- end }}
+            {{- with .Values.acl.bootstrapAdmin }}
+            - { name: ETCD_UI_ACL_BOOTSTRAP_ADMIN, value: {{ . | quote }} }
+            {{- end }}
+            {{- if .Values.acl.bootstrapFirstLogin }}
+            - { name: ETCD_UI_ACL_BOOTSTRAP_FIRST_LOGIN, value: "on" }
+            {{- end }}
+
+            # --- alerts ---
+            {{- with .Values.alerts.webhooks }}
+            - { name: ETCD_UI_ALERT_WEBHOOKS, value: "{{ join "," . }}" }
+            {{- end }}
+            {{- with .Values.alerts.throttle }}
+            - { name: ETCD_UI_ALERT_THROTTLE, value: {{ . | quote }} }
+            {{- end }}
+            {{- if .Values.alerts.browser }}
+            - { name: ETCD_UI_ALERT_BROWSER, value: "on" }
+            {{- end }}
+
+            # --- audit retention ---
+            {{- with .Values.audit.maxBytes }}
+            - { name: ETCD_UI_AUDIT_MAX_BYTES, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.audit.maxAge }}
+            - { name: ETCD_UI_AUDIT_MAX_AGE, value: {{ . | quote }} }
+            {{- end }}
+
+            # --- OpenTelemetry ---
+            {{- with .Values.otel.endpoint }}
+            - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.otel.metricsEndpoint }}
+            - { name: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.otel.tracesSampler }}
+            - { name: OTEL_TRACES_SAMPLER_ARG, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.otel.metricsInterval }}
+            - { name: OTEL_METRICS_INTERVAL, value: {{ . | quote }} }
+            {{- end }}
+
+            # --- S3 / GCS snapshot offload ---
+            {{- if .Values.snapshotOffload.enabled }}
+            - { name: ETCD_UI_SNAPSHOT_S3_ENDPOINT, value: {{ .Values.snapshotOffload.endpoint | quote }} }
+            - { name: ETCD_UI_SNAPSHOT_S3_REGION,   value: {{ .Values.snapshotOffload.region   | quote }} }
+            - { name: ETCD_UI_SNAPSHOT_S3_BUCKET,   value: {{ .Values.snapshotOffload.bucket   | quote }} }
+            {{- with .Values.snapshotOffload.prefix }}
+            - { name: ETCD_UI_SNAPSHOT_S3_PREFIX,   value: {{ . | quote }} }
+            {{- end }}
+            {{- if .Values.snapshotOffload.forcePathStyle }}
+            - { name: ETCD_UI_SNAPSHOT_S3_FORCE_PATH_STYLE, value: "1" }
+            {{- end }}
+            {{- if .Values.snapshotOffload.existingSecretName }}
+            - name: ETCD_UI_SNAPSHOT_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.snapshotOffload.existingSecretName }}, key: ETCD_UI_SNAPSHOT_S3_ACCESS_KEY }
+            - name: ETCD_UI_SNAPSHOT_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.snapshotOffload.existingSecretName }}, key: ETCD_UI_SNAPSHOT_S3_SECRET_KEY }
+            {{- else }}
+            - { name: ETCD_UI_SNAPSHOT_S3_ACCESS_KEY, value: {{ .Values.snapshotOffload.accessKey | quote }} }
+            - { name: ETCD_UI_SNAPSHOT_S3_SECRET_KEY, value: {{ .Values.snapshotOffload.secretKey | quote }} }
+            {{- end }}
+            {{- end }}
+
+            # --- federation (hub mode) ---
+            {{- with .Values.federation.peers }}
+            - { name: ETCD_UI_PEERS, value: "{{ join "," . }}" }
+            {{- end }}
+            {{- with .Values.federation.peerInterval }}
+            - { name: ETCD_UI_PEER_INTERVAL, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.federation.token }}
+            - { name: ETCD_UI_PEER_TOKEN, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.federation.peerClientIDs }}
+            - { name: ETCD_UI_PEER_CLIENT_IDS, value: "{{ join "," . }}" }
+            {{- end }}
+            {{- if .Values.federation.oidc.enabled }}
+            - { name: ETCD_UI_PEER_OIDC, value: "on" }
+            - { name: ETCD_UI_PEER_OIDC_CLIENT_ID, value: {{ .Values.federation.oidc.clientID | quote }} }
+            - { name: ETCD_UI_PEER_OIDC_SCOPE,     value: {{ .Values.federation.oidc.scope    | quote }} }
+            {{- if .Values.federation.oidc.existingSecretName }}
+            - name: ETCD_UI_PEER_OIDC_SECRET
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.federation.oidc.existingSecretName }}, key: ETCD_UI_PEER_OIDC_SECRET }
+            {{- end }}
+            {{- end }}
+          volumeMounts:
+            {{- if gt (len .Values.clusters) 1 }}
+            - name: clusters-cfg
+              mountPath: /etc/etcd-ui
+              readOnly: true
+            {{- end }}
+            {{- if .Values.certs.secretName }}
+            - name: certs
+              mountPath: {{ .Values.certs.mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.gatewayTLS.enabled }}
+            - name: gateway-tls
+              mountPath: {{ .Values.gatewayTLS.mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: /app/data
+            {{- end }}
+            {{- if .Values.acl.existingConfigMapName }}
+            - name: acl-cfg
+              mountPath: /etc/etcd-ui-acl
+              readOnly: true
+            {{- end }}
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        {{- if gt (len .Values.clusters) 1 }}
+        - name: clusters-cfg
+          configMap:
+            name: {{ include "etcd-ui.fullname" . }}-clusters
+        {{- end }}
+        {{- if .Values.certs.secretName }}
+        - name: certs
+          secret:
+            secretName: {{ .Values.certs.secretName }}
+        {{- end }}
+        {{- if .Values.gatewayTLS.enabled }}
+        - name: gateway-tls
+          secret:
+            secretName: {{ .Values.gatewayTLS.secretName }}
+        {{- end }}
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "etcd-ui.fullname" . }}-data
+        {{- end }}
+        {{- if .Values.acl.existingConfigMapName }}
+        - name: acl-cfg
+          configMap:
+            name: {{ .Values.acl.existingConfigMapName }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}

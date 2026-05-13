@@ -1,0 +1,35 @@
+# Compose overlay that swaps etcd2 for a libfaketime-preloaded build,
+# leaving etcd0/etcd1 on the stock image. The clock-skew scenario then
+# only needs to shift etcd2 — quorum still holds (2/3 aligned).
+#
+# Use together with the base file:
+#
+#   docker compose \
+#     -f chaos/docker-compose.yml \
+#     -f chaos/docker-compose.faketime.yml \
+#     up -d --build
+#
+# The --build flag is required the first time so etcd2 gets the custom
+# image. Subsequent runs reuse the cached layer.
+
+services:
+  etcd2:
+    build:
+      context: .
+      dockerfile: Dockerfile.faketime-etcd
+    image: chaos-faketime-etcd:latest
+    container_name: chaos-etcd2
+    command:
+      - --name=etcd2
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd2:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd2:2380
+      - --listen-metrics-urls=http://0.0.0.0:2381
+      - --initial-cluster=etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380
+      - --initial-cluster-token=chaos
+      - --initial-cluster-state=new
+    environment:
+      FAKETIME: "+0"
+      FAKETIME_TIMESTAMP_FILE: /etc/faketimerc
+      LD_PRELOAD: /usr/lib/faketime/libfaketime.so.1

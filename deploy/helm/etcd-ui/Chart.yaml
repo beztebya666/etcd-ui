@@ -1,0 +1,37 @@
+apiVersion: v2
+name: etcd-ui
+description: Universal, fast, beautiful UI for any etcd cluster — Kubernetes, Patroni, Vitess, Vault, APISIX, Cilium, KubeEdge, Karmada, Talos and any standalone etcd.
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
+kubeVersion: ">=1.23.0-0"
+keywords:
+  - etcd
+  - kubernetes
+  - patroni
+  - vitess
+  - apisix
+  - vault
+  - ui
+  - observability
+home: https://github.com/yourorg/etcd-ui
+sources:
+  - https://github.com/yourorg/etcd-ui
+maintainers:
+  - name: etcd-ui
+annotations:
+  artifacthub.io/category: storage
+  artifacthub.io/license: MIT
+  artifacthub.io/changes: |
+    - kind: added
+      description: HTTP Basic + OIDC bearer auth + signed session cookies.
+    - kind: added
+      description: Security headers, rate-limit, native TLS listener, pprof, /metrics, /readyz.
+    - kind: added
+      description: Per-cluster read-only enforcement; etcd client cert hot-reload.
+    - kind: added
+      description: Scheduled snapshots with retention.
+    - kind: added
+      description: Monaco editor (lazy), virtualized key tree, version diff, heatmap, sparklines.
+    - kind: added
+      description: PDB, NetworkPolicy, ServiceMonitor, multi-cluster ConfigMap.

@@ -1,0 +1,40 @@
+# Custom etcd image preloaded with libfaketime so we can shift one node's
+# clock at runtime without --cap-add=SYS_TIME or a kernel patch.
+#
+# Usage from the chaos compose (see docker-compose.faketime.yml):
+#
+#   environment:
+#     FAKETIME: "+0"
+#     LD_PRELOAD: /usr/lib/faketime/libfaketime.so.1
+#
+# Change the skew live with:
+#
+#   docker exec chaos-faketime-etcd2 sh -c 'echo "+90s" > /etc/faketimerc'
+#   docker kill -s USR1 chaos-faketime-etcd2     # tell libfaketime to re-read
+#
+# libfaketime SIGUSR1 reloads /etc/faketimerc which our scripts overwrite.
+
+FROM quay.io/coreos/etcd:v3.5.15 AS etcdsrc
+FROM alpine:3.20
+
+# libfaketime isn't packaged for Alpine — build from source. ~30s on first build,
+# cached afterwards.
+RUN apk add --no-cache build-base git \
+ && git clone --depth 1 https://github.com/wolfcw/libfaketime.git /tmp/lft \
+ && make -C /tmp/lft/src install \
+ && apk del build-base git \
+ && rm -rf /tmp/lft \
+ && mkdir -p /usr/lib/faketime \
+ && cp /usr/local/lib/faketime/libfaketime.so.1 /usr/lib/faketime/libfaketime.so.1
+
+COPY --from=etcdsrc /usr/local/bin/etcd /usr/local/bin/etcd
+COPY --from=etcdsrc /usr/local/bin/etcdctl /usr/local/bin/etcdctl
+
+ENV LD_PRELOAD=/usr/lib/faketime/libfaketime.so.1 \
+    FAKETIME_NO_CACHE=1 \
+    FAKETIME_TIMESTAMP_FILE=/etc/faketimerc
+
+RUN mkdir -p /etc && echo "+0" > /etc/faketimerc
+
+EXPOSE 2379 2380 2381
+ENTRYPOINT ["/usr/local/bin/etcd"]

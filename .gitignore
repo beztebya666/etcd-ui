@@ -1,0 +1,16 @@
+/bin/
+/dist/
+/web/dist/
+/web/node_modules/
+*.log
+.env
+.env.local
+.DS_Store
+.idea/
+.vscode/
+coverage.out
+node_modules/
+*.test
+data/
+/data/
+snap.db

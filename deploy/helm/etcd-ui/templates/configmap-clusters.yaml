@@ -1,0 +1,33 @@
+{{- if gt (len .Values.clusters) 1 }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "etcd-ui.fullname" . }}-clusters
+  labels: {{- include "etcd-ui.labels" . | nindent 4 }}
+data:
+  clusters.yaml: |
+    clusters:
+    {{- range .Values.clusters }}
+      - id: {{ .id | default .name | quote }}
+        name: {{ .name | default .id | quote }}
+        endpoints:
+        {{- range (splitList "," .endpoints) }}
+          - {{ trim . | quote }}
+        {{- end }}
+        {{- with .username }}
+        username: {{ . | quote }}
+        {{- end }}
+        {{- with .password }}
+        password: {{ . | quote }}
+        {{- end }}
+        {{- with .caFile }}
+        caFile: {{ . | quote }}
+        {{- end }}
+        {{- with .certFile }}
+        certFile: {{ . | quote }}
+        {{- end }}
+        {{- with .keyFile }}
+        keyFile: {{ . | quote }}
+        {{- end }}
+    {{- end }}
+{{- end }}

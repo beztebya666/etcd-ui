@@ -1,0 +1,54 @@
+etcd-ui {{ .Chart.AppVersion }} is installed in namespace "{{ .Release.Namespace }}".
+
+1) Reach it locally:
+     kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "etcd-ui.fullname" . }} 8080:{{ .Values.service.port }}
+   Then open http://localhost:8080
+
+{{- if .Values.ingress.enabled }}
+
+2) Public address:
+   {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}/
+{{- end }}
+
+3) Health and observability:
+     kubectl --namespace {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+     kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "etcd-ui.fullname" . }} 8080:{{ .Values.service.port }}
+     # then:  /healthz  /readyz  /metrics  /api/version
+
+{{- if .Values.discovery.kubernetes }}
+
+Kubernetes discovery is ON — etcd-ui scans kube-system for control-plane etcd and
+the additional label selectors (see ETCD_UI_K8S_SOURCES). If your etcd uses mTLS,
+set `certs.secretName` so client certs are mounted at {{ .Values.certs.mountPath }}.
+{{- end }}
+
+{{- if .Values.auth.users }}
+
+Auth is ENABLED. Sessions issued by the gateway last
+{{ .Values.auth.sessionTTLSeconds }} s. To rotate users, edit the release or the
+referenced Secret and `kubectl rollout restart deploy/{{ include "etcd-ui.fullname" . }}`.
+{{- else if not .Values.oidc.issuer }}
+
+WARNING: auth is NOT configured. Anyone with network access to the gateway can
+read and write every connected etcd cluster. Configure `auth.users` (basic) or
+`oidc.issuer` (bearer) for production.
+{{- end }}
+
+{{- if not .Values.persistence.enabled }}
+
+Persistence is OFF. The audit log, UI-added clusters, and scheduled snapshots
+all live in the pod ephemeral filesystem and disappear on restart. For prod set
+persistence.enabled=true.
+{{- end }}
+
+{{- if .Values.snapshotSchedule }}
+
+Snapshot schedule: {{ .Values.snapshotSchedule }}
+Files land in /app/data/snapshots/<cluster>/<RFC3339>.db inside the pod.
+List & download via /api/clusters/{id}/snapshots.
+{{- end }}
+
+Docs:
+  README                            https://github.com/yourorg/etcd-ui#readme
+  How to find etcd endpoints        https://github.com/yourorg/etcd-ui/blob/main/docs/CONNECT.md
+  Contributing & architecture       https://github.com/yourorg/etcd-ui/blob/main/CONTRIBUTING.md

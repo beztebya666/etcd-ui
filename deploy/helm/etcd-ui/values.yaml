@@ -1,0 +1,329 @@
+# ---------------- image ----------------
+image:
+  repository: ghcr.io/yourorg/etcd-ui
+  tag: ""              # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Override the binary name visible in /api/version. CI usually injects the SHA via -ldflags.
+buildSHA: ""
+
+replicaCount: 1
+
+# ---------------- clusters & discovery ----------------
+# Static cluster profiles. The first entry becomes the env-injected default.
+# Additional entries are written to a YAML file mounted at /etc/etcd-ui/clusters.yaml
+# and picked up by the file discovery source.
+clusters: []
+# - id: prod
+#   name: prod
+#   endpoints: "https://etcd-1:2379,https://etcd-2:2379,https://etcd-3:2379"
+#   caFile: /certs/ca.crt
+#   certFile: /certs/client.crt
+#   keyFile: /certs/client.key
+#   username: ""
+#   password: ""
+#   readOnly: false
+
+# Auto-discovery sources.
+discovery:
+  # Probe kube-system + presets via in-cluster API.
+  kubernetes: true
+  # Additional Kubernetes pod selectors. JSON array, matches the
+  # ETCD_UI_K8S_SOURCES env var. See docs/CONNECT.md.
+  kubernetesSources: []
+  # - { id: my-vitess, name: vitess-prod, namespace: vitess, labelSelector: "app=etcd", port: 2379, scheme: "http" }
+
+  # Patroni REST endpoints.
+  patroniURLs: []
+  # - "http://pg-1:8008"
+  # - "http://pg-2:8008"
+
+  # DNS SRV records. Format: "id=name=record,scheme;..."
+  dnsSRV: ""
+
+# ---------------- TLS for outbound (to etcd) ----------------
+# Mount client certs from a secret. Leave empty to use per-cluster certs.
+certs:
+  secretName: ""
+  mountPath: /certs
+
+# ---------------- TLS for inbound (gateway listener) ----------------
+# When set, the gateway binds HTTPS directly and emits HSTS.
+gatewayTLS:
+  enabled: false
+  secretName: ""      # must contain tls.crt + tls.key
+  mountPath: /tls
+
+# ---------------- persistent state ----------------
+# Stores: audit log (/app/data/audit.jsonl), UI-added clusters (clusters.json),
+# scheduled snapshots (/app/data/snapshots/<id>/...).
+persistence:
+  enabled: false
+  size: 5Gi
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+
+# ---------------- authentication ----------------
+auth:
+  # HTTP Basic. Format: "alice:plain:secret,bob:bcrypt:$2a$..."
+  # Reference a pre-existing Secret instead with auth.existingSecretName.
+  users: ""
+  existingSecretName: ""      # must contain key AUTH_USERS
+  sessionTTLSeconds: 3600
+  # HMAC secret for signed session cookies. If empty, a random per-pod secret
+  # is generated (logout-on-restart). Provide via existingSecretName to keep
+  # sessions across rolling updates.
+  sessionSecret: ""
+
+# OIDC.  Two modes; combine as needed.
+#
+#  1. Bearer-token verification — assumes a token is already minted by your
+#     IdP or auth-proxy. Set issuer/audience/usernameClaim only.
+#  2. Full authorization-code + PKCE login flow — set clientID/redirectURL.
+#     The SPA shows a "Sign in with SSO" button; flow handles state + PKCE.
+oidc:
+  issuer: ""
+  audience: ""
+  usernameClaim: "email"
+  # --- full login flow (optional; needs `issuer` set too) ---
+  clientID: ""
+  # clientSecret is optional for public PKCE clients; provide via existingSecretName.
+  clientSecret: ""
+  existingSecretName: ""   # must contain key ETCD_UI_OIDC_CLIENT_SECRET
+  redirectURL: ""          # e.g. https://etcd-ui.example.com/api/auth/oidc/callback
+  scopes: "openid email profile"
+  postLoginRedirect: "/"
+
+# Per-cluster RBAC inside etcd-ui itself (independent of etcd's own auth).
+# Resolution: most-specific cluster + longest prefix wins. `admin` ⊃ `write` ⊃ `read`.
+# When at least one rule is loaded, requests that don't match a rule are 403.
+#
+# Synthetic clusters:
+#   __acl__   admin on this pseudo-cluster lets the user edit the ACL via the
+#             Permissions page. During bootstrap (no __acl__ rule exists) any
+#             holder of cluster:"*" + access:"admin" can also edit.
+#
+# Hot-reload: when loaded from a file (acl.file or acl.existingConfigMapName),
+# the gateway watches mtime + inotify on Linux. Edits land in under 1s.
+acl:
+  # Inline JSON. Mutually exclusive with `file` / `existingConfigMapName`.
+  rules: []
+  # - { user: "alice@corp",   cluster: "prod",    prefix: "/svc/", access: "write" }
+  # - { user: "alice@corp",   cluster: "prod",    access: "read" }
+  # - { user: "oncall@corp",  cluster: "*",       access: "admin" }
+  # - { user: "platform@corp",cluster: "__acl__", access: "admin" }
+  # Mount a JSON file (hot-reloaded on mtime change; inotify on Linux):
+  file: ""                  # e.g. /etc/etcd-ui/acl.json
+  existingConfigMapName: "" # provide ACL via ConfigMap (key: acl.json)
+  # Bootstrap: grant __acl__ admin to this user on startup if no such rule
+  # exists yet. Lets a fresh deployment have a designated editor without
+  # manual env edits. Idempotent — re-running with the same value is a no-op.
+  bootstrapAdmin: ""        # e.g. "platform@corp"
+  # Alternative bootstrap: the very first authenticated user becomes
+  # __acl__ admin (recorded to the on-disk ACL so subsequent restarts are
+  # idempotent). Useful when you don't know the operator's identity in
+  # advance — e.g. trial deploys, on-prem installs handed to customers.
+  bootstrapFirstLogin: false
+
+# Health-degradation alerts. Webhooks fire on healthy → unhealthy flips,
+# leader changes, and new alarms. Per-(cluster, kind, recipient) throttle —
+# each webhook URL has its own bucket so a quiet Slack doesn't suppress
+# Discord.
+alerts:
+  webhooks: []
+  # - "https://hooks.slack.com/services/T/B/X"
+  # - "https://discord.com/api/webhooks/.../..."
+  throttle: "5m"
+  # In-browser Notification API delivery in addition to webhooks. The SPA
+  # asks for permission on first health flip; once granted, alerts appear
+  # as native OS toasts plus an in-app toast.
+  browser: false
+
+# Audit log retention. Compaction runs hourly; the file is rewritten from
+# the in-memory ring when either limit is exceeded.
+audit:
+  maxBytes: "268435456"   # 256 MiB
+  maxAge: "720h"          # 30 days
+
+# Scheduled snapshot offload to S3-compatible storage. Three upload modes:
+#
+#   < 4.5 GB                 single-PUT with full-body SigV4
+#   ≥ 4.5 GB (seekable)     multipart upload, 64 MiB chunks × 4 parallel workers
+#   any size (streaming)    chunked-payload SigV4 (8 MiB chunks, no hash-then-PUT
+#                            pre-pass) — used when source isn't seekable
+#
+# Works with AWS S3 / MinIO / GCS (HMAC) / R2 / Wasabi / Backblaze B2.
+snapshotOffload:
+  enabled: false
+  endpoint: ""          # https://s3.amazonaws.com | https://storage.googleapis.com | http://minio:9000
+  region: "us-east-1"
+  bucket: ""
+  prefix: ""            # e.g. "etcd-ui/" — keys are <prefix><cluster>/<file>.db
+  forcePathStyle: false # set true for MinIO
+  existingSecretName: ""  # must contain ETCD_UI_SNAPSHOT_S3_ACCESS_KEY + _SECRET_KEY
+  accessKey: ""         # inlined; prefer existingSecretName in production
+  secretKey: ""
+
+# Federation: aggregate clusters from remote etcd-ui peers in one UI.
+#
+# Peer-side ACL: when a peer authenticates a federation request via OIDC and
+# the token's `azp` / `client_id` claim is in `peerClientIDs` (below), the
+# peer treats the principal as `system:peer:<client_id>` for ACL purposes —
+# so you can grant federation hubs distinct (typically tight) access.
+#
+# On-behalf-of pass-through: the hub propagates the calling human's id via
+# `X-Etcd-UI-On-Behalf`. When the carrier is a verified peer, the peer
+# upgrades the effective principal to `peer:<id>/<human>` so ACL can apply
+# real per-user rules instead of trusting blanket peer access.
+federation:
+  peers: []
+  # - "https://eu.etcd-ui.example.com"
+  # - "https://us.etcd-ui.example.com"
+  # How often the hub re-polls each peer for cluster aggregation. Go
+  # duration (30s, 1m, …). Default 30s when unset.
+  peerInterval: ""
+  # Optional shared bearer for the peer→peer hop; prefer OIDC service-account
+  # via federation.oidc below.
+  token: ""
+  # OIDC service-account that mints client_credentials tokens against
+  # `oidc.issuer` and uses them in the Authorization header to peers.
+  oidc:
+    enabled: false
+    clientID: ""
+    existingSecretName: ""   # ETCD_UI_PEER_OIDC_SECRET
+    scope: "etcd-ui.peer"
+  # Peer-side: client_ids recognised as incoming federation hops. Tokens
+  # with `azp` matching one of these get the `system:peer:<id>` principal.
+  peerClientIDs: []
+  # - "hub-eu"
+  # - "hub-us"
+
+# ---------------- hardening ----------------
+hardening:
+  # Comma-separated origin allowlist for CORS. "*" for dev.
+  corsOrigins: ""
+  # Per-user (or per-IP if unauth) request rate.
+  rateRPS: 30
+  rateBurst: 60
+  # Override CSP; empty uses the strict-but-practical default in the code.
+  csp: ""
+  # Expose /debug/pprof behind auth.
+  pprof: false
+
+# Cluster IDs forced into read-only (kv/ops refuse mutations).
+readonlyClusters: []
+
+# In-UI etcdctl terminal. Disabled by default — operator opts in. The real
+# etcdctl binary ships in the image; this just flips the gate on the exec
+# endpoint. Subcommands are still allow-listed in code.
+etcdctl:
+  enabled: false
+
+# Offline etcdutl — bundled in the image, exposed via Maintenance's
+# "Validate snapshot" card. The endpoint accepts an uploaded .db file and
+# returns hash / revision / total keys / size from `etcdutl snapshot status`.
+# Always on (no shell-out gate needed — it never touches a running cluster,
+# just inspects the uploaded blob). Tune the upload ceiling here.
+etcdutl:
+  maxMB: 32
+
+# ---------------- scheduled snapshots ----------------
+# Format: "<cluster>:<period>:<retain>". Multiple comma-separated.
+# Period: hourly | daily | weekly | <Go-duration>.
+# Stored at /app/data/snapshots/<cluster>/<RFC3339>.db. Older pruned automatically.
+snapshotSchedule: ""
+# Example: "default:hourly:24,prod:daily:30"
+
+# ---------------- service & ingress ----------------
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  host: etcd-ui.example.com
+  tls: false
+  tlsSecretName: ""
+  annotations: {}
+
+# ---------------- pod runtime ----------------
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  # If discovery.kubernetes is true, the SA gets read access to kube-system pods
+  # (across namespaces if you set discovery.kubernetesSources with empty namespace).
+  create: true
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+podSecurityContext: {}
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false   # audit + snapshot writes need /app/data
+  capabilities:
+    drop: [ALL]
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""
+
+pdb:
+  enabled: true
+  minAvailable: 1
+  # maxUnavailable: ""
+
+networkPolicy:
+  enabled: false
+  # Restrict /api access to specific namespaces/pods.
+  ingressFrom: []
+  # - namespaceSelector:
+  #     matchLabels:
+  #       kubernetes.io/metadata.name: ingress-nginx
+
+# ---------------- logging ----------------
+logging:
+  level: info             # debug | info | warn | error
+  format: json            # json | console
+
+# ---------------- ServiceMonitor (Prometheus Operator) ----------------
+metrics:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+
+# OpenTelemetry. Independent pipelines: traces (W3C TraceContext propagates
+# across every internal hop) and metrics (counters/gauges as observable
+# instruments). Both are no-ops without an endpoint.
+otel:
+  # OTLP/HTTP collector for traces.
+  endpoint: ""              # e.g. http://otel-collector.observability:4318
+  # Optional separate collector for metrics.
+  metricsEndpoint: ""
+  # Sampling: "1.0" / "0.5" / "0.1" / "0".
+  tracesSampler: "1.0"
+  # Periodic metrics export cadence.
+  metricsInterval: "30s"

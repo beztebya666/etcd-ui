@@ -1,0 +1,33 @@
+# Overlay compose for chaos scenarios that need to munge network traffic.
+# Adds Toxiproxy in front of each etcd member's client port. The chaos
+# script (run.sh) talks to Toxiproxy's admin API to inject latency, drop
+# packets or simulate partitions.
+#
+# Use together with the base file:
+#
+#   docker compose \
+#     -f chaos/docker-compose.yml \
+#     -f chaos/docker-compose.toxiproxy.yml \
+#     up -d
+
+services:
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    container_name: chaos-toxiproxy
+    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+    ports:
+      - "8474:8474"     # admin
+      - "23791:23791"   # etcd0 proxy
+      - "23792:23792"   # etcd1 proxy
+      - "23793:23793"   # etcd2 proxy
+    volumes:
+      - ./toxiproxy.json:/config/toxiproxy.json:ro
+    networks: [chaos]
+
+  # Override etcd-ui so it goes through the toxiproxy ports instead of the
+  # member client ports directly. Toxiproxy listens on host networking via
+  # the published ports above; from inside the network we still address it
+  # by container name.
+  etcd-ui:
+    environment:
+      ETCD_ENDPOINTS: "http://toxiproxy:23791,http://toxiproxy:23792,http://toxiproxy:23793"

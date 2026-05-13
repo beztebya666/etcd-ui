@@ -1,0 +1,84 @@
+# golangci-lint config for etcd-ui.
+#
+# Goals:
+#  - catch real bugs (errcheck/govet/staticcheck/ineffassign/typecheck)
+#  - hold the codebase to one style (gofmt + gofumpt + gci import ordering)
+#  - flag the things we have actually been burned by:
+#    * unchecked errors (errcheck)
+#    * shadowing the global ctx (govet shadow)
+#    * dead code & always-false branches (unused, staticcheck SA*)
+#    * fmt allocations on hot paths (perfsprint)
+#
+# Deliberately disabled:
+#  - gomnd / mnd  — too noisy on HTTP timeouts and sizes
+#  - exhaustruct — clutters every struct literal
+#  - depguard    — already handled by go.mod
+#  - lll/funlen  — vet-style noise rather than real defects
+
+run:
+  timeout: 5m
+  go: "1.22"
+  tests: true
+  build-tags:
+    - integration
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - gofmt
+    - gofumpt
+    - gci
+    - revive
+    - misspell
+    - gosec
+    - bodyclose
+    - rowserrcheck
+    - sqlclosecheck
+    - noctx
+    - nolintlint
+    - perfsprint
+    - errorlint
+    - copyloopvar
+
+linters-settings:
+  govet:
+    enable:
+      - shadow
+      - nilness
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(github.com/yourorg/etcd-ui)
+  staticcheck:
+    checks:
+      - all
+  revive:
+    severity: warning
+    rules:
+      - name: var-naming
+      - name: indent-error-flow
+      - name: superfluous-else
+      - name: unused-parameter
+        disabled: true   # too noisy on HTTP handlers
+      - name: package-comments
+        disabled: true
+
+issues:
+  exclude-rules:
+    # Tests pull in stdlib packages where we don't care about errcheck noise on
+    # cleanup calls (resp.Body.Close, os.RemoveAll, etc.).
+    - path: _test\.go
+      linters:
+        - errcheck
+        - bodyclose
+    # Generated audit JSONL reader uses `_ = enc.Encode(...)` deliberately.
+    - path: internal/audit/audit\.go
+      text: "Error return value of `\\(\\*encoding/json.Encoder\\).Encode` is not checked"
+  max-same-issues: 0
+  max-issues-per-linter: 0

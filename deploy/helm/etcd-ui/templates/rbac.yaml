@@ -1,0 +1,33 @@
+{{- if .Values.serviceAccount.create -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "etcd-ui.serviceAccountName" . }}
+  labels: {{- include "etcd-ui.labels" . | nindent 4 }}
+{{- end }}
+{{- if and .Values.rbac.create .Values.discovery.kubernetes }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "etcd-ui.fullname" . }}-read-pods
+  namespace: kube-system
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "etcd-ui.fullname" . }}-read-pods
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "etcd-ui.fullname" . }}-read-pods
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "etcd-ui.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

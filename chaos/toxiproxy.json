@@ -1,0 +1,38 @@
+[
+  {
+    "name": "etcd0",
+    "listen": "[::]:23791",
+    "upstream": "etcd0:2379",
+    "enabled": true
+  },
+  {
+    "name": "etcd1",
+    "listen": "[::]:23792",
+    "upstream": "etcd1:2379",
+    "enabled": true
+  },
+  {
+    "name": "etcd2",
+    "listen": "[::]:23793",
+    "upstream": "etcd2:2379",
+    "enabled": true
+  },
+  {
+    "name": "peer-etcd0",
+    "listen": "[::]:23801",
+    "upstream": "etcd0:2380",
+    "enabled": true
+  },
+  {
+    "name": "peer-etcd1",
+    "listen": "[::]:23802",
+    "upstream": "etcd1:2380",
+    "enabled": true
+  },
+  {
+    "name": "peer-etcd2",
+    "listen": "[::]:23803",
+    "upstream": "etcd2:2380",
+    "enabled": true
+  }
+]

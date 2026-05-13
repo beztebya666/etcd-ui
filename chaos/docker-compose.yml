@@ -1,0 +1,70 @@
+# 3-node etcd cluster + etcd-ui, designed so a chaos run can kill a node and
+# verify the UI keeps working. Used by chaos/run.sh.
+#
+#   docker compose -f chaos/docker-compose.yml up -d
+#   chaos/run.sh
+#   docker compose -f chaos/docker-compose.yml down -v
+
+services:
+  etcd0:
+    image: quay.io/coreos/etcd:v3.5.15
+    container_name: chaos-etcd0
+    command:
+      - etcd
+      - --name=etcd0
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd0:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd0:2380
+      - --listen-metrics-urls=http://0.0.0.0:2381
+      - --initial-cluster=etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380
+      - --initial-cluster-token=chaos
+      - --initial-cluster-state=new
+    networks: [chaos]
+
+  etcd1:
+    image: quay.io/coreos/etcd:v3.5.15
+    container_name: chaos-etcd1
+    command:
+      - etcd
+      - --name=etcd1
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd1:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd1:2380
+      - --listen-metrics-urls=http://0.0.0.0:2381
+      - --initial-cluster=etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380
+      - --initial-cluster-token=chaos
+      - --initial-cluster-state=new
+    networks: [chaos]
+
+  etcd2:
+    image: quay.io/coreos/etcd:v3.5.15
+    container_name: chaos-etcd2
+    command:
+      - etcd
+      - --name=etcd2
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd2:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd2:2380
+      - --listen-metrics-urls=http://0.0.0.0:2381
+      - --initial-cluster=etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380
+      - --initial-cluster-token=chaos
+      - --initial-cluster-state=new
+    networks: [chaos]
+
+  etcd-ui:
+    image: etcd-ui:dev          # build with: make build-image
+    container_name: chaos-ui
+    environment:
+      ETCD_ENDPOINTS: "http://etcd0:2379,http://etcd1:2379,http://etcd2:2379"
+      ETCD_UI_CLUSTER_ID: "chaos"
+      ETCD_UI_CLUSTER_NAME: "chaos"
+    ports: ["18080:8080"]
+    depends_on: [etcd0, etcd1, etcd2]
+    networks: [chaos]
+
+networks:
+  chaos:
+    driver: bridge

@@ -1,0 +1,34 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "etcd-ui.fullname" . }}
+  labels: {{- include "etcd-ui.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "etcd-ui.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+      {{- with .Values.networkPolicy.ingressFrom }}
+      from: {{- toYaml . | nindent 8 }}
+      {{- end }}
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    # etcd traffic — adjust to your cluster topology.
+    - ports:
+        - { port: 2379, protocol: TCP }
+        - { port: 2380, protocol: TCP }
+    # Kubernetes API for in-cluster discovery
+    - ports:
+        - { port: 443, protocol: TCP }
+{{- end }}

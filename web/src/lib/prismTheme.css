@@ -1,0 +1,53 @@
+/* Prism theme keyed to etcd-ui's CSS vars so light/dark themes track
+ * automatically. Token classes are stable across Prism versions. */
+
+.token.property,
+.token.tag,
+.token.boolean,
+.token.constant,
+.token.symbol,
+.token.deleted {
+  color: rgb(var(--accent-500));
+}
+
+.token.string,
+.token.char,
+.token.attr-value,
+.token.builtin,
+.token.inserted {
+  color: rgb(var(--warn));
+}
+
+.token.number {
+  color: #7dd3fc; /* sky-300 — neutral across themes */
+}
+
+.token.null,
+.token.undefined,
+.token.regex,
+.token.important {
+  color: #f87171; /* red-400 */
+}
+
+.token.punctuation,
+.token.operator {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.light .token.punctuation,
+.light .token.operator {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.token.comment {
+  color: rgba(255, 255, 255, 0.4);
+  font-style: italic;
+}
+
+.token.bold {
+  font-weight: 600;
+}
+
+.token.italic {
+  font-style: italic;
+}

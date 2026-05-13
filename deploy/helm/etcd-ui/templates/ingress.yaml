@@ -1,0 +1,29 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "etcd-ui.fullname" . }}
+  labels: {{- include "etcd-ui.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "etcd-ui.fullname" . }}
+                port: { name: http }
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts: [ {{ .Values.ingress.host | quote }} ]
+      secretName: {{ .Values.ingress.tlsSecretName }}
+  {{- end }}
+{{- end }}
