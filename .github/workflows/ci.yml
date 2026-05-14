@@ -47,14 +47,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: "1.25", cache: true }
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v7
         with:
-          # v1.64 itself is built with go1.24 and rejects every typecheck
-          # in a repo whose go.mod says `go 1.25` ('package requires
-          # newer Go version go1.25 (application built with go1.24)').
-          # v2.x is built with Go 1.25 — config schema is migrated in
-          # .golangci.yml. --concurrency=2 + GOMEMLIMIT keep us under
-          # the 7 GB runner cap on the k8s.io/api type-check graph.
+          # v1.x of the lint binary is built with Go 1.24 → typecheck
+          # everything in a `go 1.25` module. v2.x binaries are built
+          # with Go 1.25, and the @v7 action is the one that knows
+          # about the v2 binary CLI (@v6 hard-errors with "v2 not
+          # supported by this action"). Config schema migrated to
+          # match in .golangci.yml. --concurrency=2 + GOMEMLIMIT keep
+          # the type-check graph (k8s.io/api is heavy) under the 7 GB
+          # runner cap.
           version: v2.1
           args: --timeout=8m --concurrency=2
 
