@@ -10,6 +10,34 @@ import (
 	"time"
 )
 
+// startWatch spawns a.Watch in a goroutine and registers a t.Cleanup
+// that cancels the context AND waits for Watch to return before
+// t.TempDir's deferred RemoveAll runs. Without this the watcher can be
+// mid-read on a file that the test framework is concurrently unlinking,
+// which on Linux surfaces as "unlinkat ...: bad file descriptor" — a
+// real source of CI flakes that have nothing to do with the code under
+// test. t.Cleanup callbacks run in LIFO order, and t.TempDir registers
+// its own cleanup at the time of the call; so as long as we call
+// t.TempDir() BEFORE startWatch(), our cleanup pops first and finishes
+// the goroutine before the directory disappears.
+func startWatch(t *testing.T, a *ACL, period time.Duration) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		a.Watch(ctx, period)
+		close(done)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Logf("ACL.Watch did not exit within 2s of cancel — TempDir cleanup may race")
+		}
+	})
+}
+
 // Reads/writes to the same file from multiple goroutines — the reloader has
 // to see the new mtime and swap atomically without corrupting the live rule
 // set.
@@ -33,10 +61,8 @@ func TestACL_HotReload_SwapsRulesAfterWrite(t *testing.T) {
 	reloads := make(chan int, 4)
 	a.OnReload(func(n int) { reloads <- n })
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	// Aggressive poll for tests — production is 5s.
-	go a.Watch(ctx, 50*time.Millisecond)
+	startWatch(t, a, 50*time.Millisecond)
 
 	// Sleep enough that the next mtime tick definitely differs (some FS
 	// have 1s resolution on ModTime).
@@ -86,9 +112,7 @@ func TestACL_HotReload_BadJSONPreservesPrevious(t *testing.T) {
 			failures.Add(1)
 		}
 	})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go a.Watch(ctx, 50*time.Millisecond)
+	startWatch(t, a, 50*time.Millisecond)
 
 	time.Sleep(1100 * time.Millisecond)
 	// Drop garbage on disk.
@@ -126,9 +150,7 @@ func TestACL_HotReload_ConcurrentReaders(t *testing.T) {
 	a := NewACL()
 	_ = a.LoadFile(path)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go a.Watch(ctx, 20*time.Millisecond)
+	startWatch(t, a, 20*time.Millisecond)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 4; i++ {
