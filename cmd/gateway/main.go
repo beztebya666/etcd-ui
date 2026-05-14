@@ -493,7 +493,7 @@ func apiRouter(clusterP, kvP, opsP, auditP *httputil.ReverseProxy) http.Handler 
 				return
 			}
 			switch segs[2] {
-			case "range", "put", "put-cas", "delete", "watch", "bulk", "txn", "export", "history", "diff":
+			case "range", "put", "put-cas", "put-k8s", "delete", "watch", "bulk", "txn", "export", "history", "diff":
 				kvP.ServeHTTP(w, r)
 			case "snapshot", "snapshots", "restore", "leases", "compact", "defrag", "alarms", "rbac", "metrics", "etcdctl", "etcdutl", "locks", "move-leader":
 				opsP.ServeHTTP(w, r)

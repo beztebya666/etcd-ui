@@ -9,12 +9,18 @@ import type { KVPreview } from "../lib/api";
 import Prism from "prismjs";
 import "prismjs/components/prism-json";
 import "../lib/prismTheme.css";
+import { cn } from "../lib/cn";
 
 export type CodeEditorProps = {
   value: string;
   onChange: (v: string) => void;
   readOnly?: boolean;
   preview?: KVPreview;
+  // When set + a decoded preview is available, the editor enters K8s
+  // edit mode: user edits the structured JSON, save round-trips via
+  // /put-k8s back into the wire format etcd expects.
+  onEditDecoded?: (decodedJson: string) => void;
+  decodedDraft?: string;
 };
 
 // Heuristic: a value is "binary" if it contains the Unicode replacement char
@@ -44,16 +50,25 @@ export function readableHint(s: string, max = 60): string {
   return out.trim();
 }
 
-export function CodeEditor({ value, onChange, readOnly, preview }: CodeEditorProps) {
+export function CodeEditor({ value, onChange, readOnly, preview, onEditDecoded, decodedDraft }: CodeEditorProps) {
   const binary = useMemo(() => looksBinary(value), [value]);
   const isJSON = useMemo(() => looksJSON(value), [value]);
 
   // Server-decoded structured JSON wins over raw binary — kube-apiserver
   // protobuf round-trips losslessly through k8s.io/api into a real Go
   // struct, then we JSON-marshal that. Operator sees the same shape as
-  // `kubectl get pod -o yaml | yq -j`.
+  // `kubectl get pod -o yaml | yq -j`. When `onEditDecoded` is wired,
+  // the user can edit and save round-trips via /put-k8s.
   if (binary && preview?.json) {
-    return <DecodedView decoded={preview.json} preview={preview} rawValue={value} />;
+    return (
+      <DecodedView
+        decoded={preview.json}
+        preview={preview}
+        rawValue={value}
+        onEditDecoded={onEditDecoded}
+        decodedDraft={decodedDraft}
+      />
+    );
   }
 
   if (binary) {
@@ -76,19 +91,37 @@ export function CodeEditor({ value, onChange, readOnly, preview }: CodeEditorPro
 }
 
 // DecodedView renders a server-decoded K8s object as Prism-highlighted
-// JSON, with a toggle dropping back to the raw protobuf hex for the rare
-// cases where you genuinely want to inspect the wire format.
+// JSON, with toggles for (a) raw protobuf bytes and (b) edit mode where
+// the user types directly into the JSON. Saved edits round-trip via
+// /put-k8s — server re-encodes back to the original wire format.
 function DecodedView({
   decoded,
   preview,
   rawValue,
+  onEditDecoded,
+  decodedDraft,
 }: {
   decoded: string;
   preview: KVPreview;
   rawValue: string;
+  onEditDecoded?: (decodedJson: string) => void;
+  decodedDraft?: string;
 }) {
   const [showRaw, setShowRaw] = useState(false);
-  const html = useMemo(() => highlightJSON(decoded), [decoded]);
+  const [editing, setEditing] = useState(false);
+  const current = decodedDraft ?? decoded;
+  const html = useMemo(() => highlightJSON(current), [current]);
+  const isDirty = decodedDraft != null && decodedDraft !== decoded;
+  const parseError = useMemo(() => {
+    if (!editing || !decodedDraft) return null;
+    try {
+      JSON.parse(decodedDraft);
+      return null;
+    } catch (e) {
+      return (e as Error).message;
+    }
+  }, [editing, decodedDraft]);
+
   if (showRaw) {
     return (
       <div className="h-full flex flex-col">
@@ -106,14 +139,61 @@ function DecodedView({
   return (
     <div className="h-full flex flex-col">
       <ChipsBar preview={preview} extra={
-        <button onClick={() => setShowRaw(true)} className="btn btn-ghost text-xs !h-6 ml-auto" title="View raw protobuf bytes">
-          Raw protobuf
-        </button>
+        <div className="ml-auto flex items-center gap-1.5">
+          {parseError && (
+            <span className="text-[10px] text-danger font-mono" title={parseError}>
+              JSON error
+            </span>
+          )}
+          {isDirty && !parseError && (
+            <span className="text-[10px] text-accent-500">edited</span>
+          )}
+          {onEditDecoded && (
+            <button
+              onClick={() => setEditing((v) => !v)}
+              className={cn("btn btn-ghost text-xs !h-6", editing && "text-accent-500")}
+              title={editing ? "Stop editing (keeps changes)" : "Edit this object as JSON"}
+            >
+              {editing ? "Done editing" : "Edit"}
+            </button>
+          )}
+          <button onClick={() => setShowRaw(true)} className="btn btn-ghost text-xs !h-6" title="View raw protobuf bytes">
+            Raw protobuf
+          </button>
+        </div>
       }/>
-      <pre
-        className="flex-1 overflow-auto p-4 font-mono text-[13px] leading-relaxed whitespace-pre"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      {editing && onEditDecoded ? (
+        <textarea
+          value={current}
+          onChange={(e) => onEditDecoded(e.target.value)}
+          spellCheck={false}
+          autoFocus
+          className="flex-1 w-full p-4 font-mono text-[13px] leading-relaxed resize-none outline-none bg-transparent"
+          // Tab → 2 spaces inside textarea so structure stays consistent
+          // with what Decode emits.
+          onKeyDown={(e) => {
+            if (e.key === "Tab") {
+              e.preventDefault();
+              const t = e.currentTarget;
+              const s = t.selectionStart;
+              const newVal = current.slice(0, s) + "  " + current.slice(t.selectionEnd);
+              onEditDecoded(newVal);
+              requestAnimationFrame(() => { t.selectionStart = t.selectionEnd = s + 2; });
+            }
+          }}
+        />
+      ) : (
+        <pre
+          // whitespace-pre-wrap so deeply-nested K8s JSON (especially the
+          // `kubectl.kubernetes.io/last-applied-configuration` annotation
+          // which embeds a multi-KB JSON string on a single line) wraps
+          // instead of forcing horizontal scroll. break-all is too
+          // aggressive (splits identifiers); break-words lets the
+          // browser pick word boundaries.
+          className="flex-1 overflow-auto p-4 font-mono text-[13px] leading-relaxed whitespace-pre-wrap break-words"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
     </div>
   );
 }

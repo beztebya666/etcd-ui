@@ -52,6 +52,12 @@ export function Browser() {
   }, [prefix, valueRegex]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ key: string; value: string } | null>(null);
+  // Parallel draft for the structured K8s view. When the user is
+  // editing a decoded Pod/Deployment/etc, we stash the edited JSON
+  // here instead of mutating `draft.value` (which holds the binary
+  // proto bytes). On save we hit /put-k8s with the JSON; the server
+  // re-encodes back to protobuf before writing.
+  const [decodedDraft, setDecodedDraft] = useState<string | null>(null);
   // Snapshot of the modRevision at the moment the user opened the editor.
   // When background refetch shows a newer modRev for the same key, somebody
   // else (another tab, another user, an operator with etcdctl) wrote to
@@ -222,6 +228,9 @@ export function Browser() {
     if (selected && (!draft || draft.key !== selected.key)) {
       setDraft({ key: selected.key, value: selected.value });
       setDraftBaseRev(selected.modRevision);
+      // Clear decoded draft when switching keys — never carry edits
+      // for one Pod into the editor for another.
+      setDecodedDraft(null);
     }
   }, [selected, draft]);
 
@@ -843,7 +852,37 @@ export function Browser() {
               </button>
               <button
                 className="btn btn-primary"
-                onClick={() => putMut.mutate({ key: draft.key, value: draft.value })}
+                onClick={async () => {
+                  // If the user edited the structured K8s view, the
+                  // canonical edit lives in `decodedDraft` (JSON). Send
+                  // it via /put-k8s so the server re-encodes back to
+                  // protobuf before writing. Otherwise fall back to the
+                  // CRDT-aware /put-cas with the raw value the editor
+                  // has been holding.
+                  if (decodedDraft && selected?.preview) {
+                    try {
+                      const r = await api.putK8s(cluster!, {
+                        key: draft.key,
+                        format: selected.preview.format,
+                        apiVersion: selected.preview.apiVersion ?? "",
+                        kind: selected.preview.kind ?? "",
+                        json: decodedDraft,
+                        baseRev: draftBaseRev,
+                      });
+                      if (r.status === "conflict") {
+                        toast.error("Concurrent write — reload the key and re-apply your edit");
+                        return;
+                      }
+                      toast.success("Saved");
+                      setDecodedDraft(null);
+                      qc.invalidateQueries({ queryKey: ["range", cluster] });
+                    } catch (e) {
+                      toast.error((e as Error).message);
+                    }
+                  } else {
+                    putMut.mutate({ key: draft.key, value: draft.value });
+                  }
+                }}
                 disabled={putMut.isPending}
                 title={putMut.isPending ? "Saving…" : "Save (Ctrl+S)"}
                 aria-label={putMut.isPending ? "Saving" : "Save key"}
@@ -905,6 +944,12 @@ export function Browser() {
                 value={draft.value}
                 onChange={(v) => setDraft({ ...draft, value: v })}
                 preview={selected?.preview}
+                decodedDraft={decodedDraft ?? undefined}
+                onEditDecoded={
+                  selected?.preview?.json
+                    ? (v) => setDecodedDraft(v)
+                    : undefined
+                }
               />
             </div>
             {putMut.error ? (

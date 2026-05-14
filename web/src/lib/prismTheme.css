@@ -1,47 +1,101 @@
-/* Prism theme keyed to etcd-ui's CSS vars so light/dark themes track
- * automatically. Token classes are stable across Prism versions. */
+/* Prism theme for etcd-ui — distinct token colours tuned for K8s JSON
+ * (lots of strings, lots of keys, few numbers/booleans). Inspired by
+ * VS Code's "One Dark Pro" but using cooler accents so the existing
+ * green accent of the app stays the visual lead.
+ *
+ * Mapping (dark theme by default; the .light variants invert lightness
+ * for legibility on light backgrounds):
+ *
+ *   property        — JSON keys                       cyan-300
+ *   string          — JSON string values              amber-300
+ *   number          — integers / floats               purple-300
+ *   boolean/null    — true / false / null             rose-400
+ *   punctuation     — { } [ ] , :                     slate-500
+ *   operator        — = > < etc (n/a for JSON)        slate-400
+ *   comment         — never present in JSON, but inherits italics
+ *
+ * Spec-mandated Prism classes are listed here; non-standard groupings
+ * (e.g. `.token.tag` for HTML) intentionally not styled — they shouldn't
+ * appear in JSON output and we don't want bleed-over if a future tab
+ * adds YAML/TS highlighting. */
 
-.token.property,
-.token.tag,
-.token.boolean,
-.token.constant,
-.token.symbol,
-.token.deleted {
-  color: rgb(var(--accent-500));
+/* Keys — JSON `"property"` before a colon. */
+.token.property {
+  color: #67e8f9; /* cyan-300 */
+}
+.light .token.property {
+  color: #0e7490; /* cyan-700 */
 }
 
+/* String literal values. */
 .token.string,
 .token.char,
 .token.attr-value,
-.token.builtin,
 .token.inserted {
-  color: rgb(var(--warn));
+  color: #fcd34d; /* amber-300 */
+}
+.light .token.string,
+.light .token.char,
+.light .token.attr-value {
+  color: #b45309; /* amber-700 */
 }
 
+/* Numbers. */
 .token.number {
-  color: #7dd3fc; /* sky-300 — neutral across themes */
+  color: #c4b5fd; /* violet-300 */
+  font-weight: 500;
+}
+.light .token.number {
+  color: #6d28d9; /* violet-700 */
 }
 
+/* true / false / null. */
+.token.boolean,
 .token.null,
-.token.undefined,
-.token.regex,
-.token.important {
+.token.constant,
+.token.symbol {
+  color: #fb7185; /* rose-400 */
+  font-weight: 600;
+}
+.light .token.boolean,
+.light .token.null,
+.light .token.constant,
+.light .token.symbol {
+  color: #be123c; /* rose-700 */
+}
+
+/* Structural punctuation: braces, brackets, commas, colons. Muted but
+ * still legible so the eye can ride the structure. */
+.token.punctuation {
+  color: rgba(255, 255, 255, 0.45);
+}
+.light .token.punctuation {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.token.operator {
+  color: rgba(255, 255, 255, 0.65);
+}
+.light .token.operator {
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.token.deleted {
   color: #f87171; /* red-400 */
 }
 
-.token.punctuation,
-.token.operator {
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.light .token.punctuation,
-.light .token.operator {
-  color: rgba(0, 0, 0, 0.55);
+.token.builtin,
+.token.regex,
+.token.important {
+  color: #fda4af; /* rose-300 */
 }
 
 .token.comment {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.35);
   font-style: italic;
+}
+.light .token.comment {
+  color: rgba(0, 0, 0, 0.45);
 }
 
 .token.bold {
@@ -50,4 +104,10 @@
 
 .token.italic {
   font-style: italic;
+}
+
+/* Selection inside the highlighted pre — slightly tinted so the user
+ * can see what they've selected even with coloured tokens underneath. */
+pre ::selection {
+  background: rgba(16, 185, 129, 0.35);
 }

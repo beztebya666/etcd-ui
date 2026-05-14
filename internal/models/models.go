@@ -111,6 +111,26 @@ type PutRequest struct {
 // PutCASRequest is a compare-and-set put with 3-way merge fallback.
 // `baseRev` is the modRevision the client read before editing; the server
 // uses it as the merge base when the live revision has moved forward.
+// PutK8sRequest writes a K8s object the SPA has been editing as
+// structured JSON. The server re-encodes (proto or pretty-JSON) before
+// writing so kube-apiserver continues to read the value as it expects.
+type PutK8sRequest struct {
+	Key        string `json:"key"`
+	// Format must match what the original Decode returned for the key:
+	//   "k8s-proto" — wrap edits in runtime.Unknown + protobuf
+	//   "json"     — write minified JSON (CRDs without typed shim)
+	Format     string `json:"format"`
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	JSON       string `json:"json"`
+	BaseRev    int64  `json:"baseRev"`
+}
+
+type PutK8sResponse struct {
+	Status   string `json:"status"`
+	Revision int64  `json:"revision,omitempty"`
+}
+
 type PutCASRequest struct {
 	Key     string `json:"key"`
 	Value   string `json:"value"`

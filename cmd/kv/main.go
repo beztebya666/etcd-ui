@@ -283,6 +283,11 @@ func main() {
 	// or returning a conflict for the SPA to render.
 	r.Post("/clusters/{id}/put-cas", casHandler(pool))
 
+	// K8s-aware put: caller sends the decoded JSON the SPA was editing,
+	// server re-encodes (proto for built-in Kinds, JSON for CRDs)
+	// before writing. See cmd/kv/put_k8s.go.
+	r.Post("/clusters/{id}/put-k8s", putK8sHandler(pool))
+
 	r.Post("/clusters/{id}/delete", func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		var req models.DeleteRequest

@@ -233,7 +233,12 @@ export function Shell({ children }: { children: ReactNode }) {
         Skip to main content
       </a>
       <main id="main-content" role="main" className="row-start-2 overflow-y-auto grid-bg">
-        <div className="max-w-[1400px] mx-auto p-4 sm:p-6 animate-in">{children}</div>
+        {/* No max-width cap — wide 21:9 / 4K monitors had ~300px wasted
+            margin on each side, and the Browser/Cluster/Metrics pages
+            actively want that space for the tree + editor. The pages
+            themselves still use sensible inner max-widths where reading
+            comfort matters (Settings, About text blocks). */}
+        <div className="w-full p-4 sm:p-6 animate-in">{children}</div>
       </main>
     </div>
   );

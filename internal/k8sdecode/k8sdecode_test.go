@@ -42,25 +42,6 @@ func roundTrip(t *testing.T, obj runtime.Object, gvk schema.GroupVersionKind) []
 	return out.Bytes()
 }
 
-func writeVarint(w *bytes.Buffer, x uint64) {
-	for x >= 0x80 {
-		w.WriteByte(byte(x) | 0x80)
-		x >>= 7
-	}
-	w.WriteByte(byte(x))
-}
-
-func writeBytesField(w *bytes.Buffer, fieldNum int, val []byte) {
-	tag := uint64(fieldNum)<<3 | 2
-	writeVarint(w, tag)
-	writeVarint(w, uint64(len(val)))
-	w.Write(val)
-}
-
-func writeStringField(w *bytes.Buffer, fieldNum int, val string) {
-	writeBytesField(w, fieldNum, []byte(val))
-}
-
 func TestDecode_Pod(t *testing.T) {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -189,6 +170,66 @@ func TestDecode_NotK8s(t *testing.T) {
 	}
 	if d := Decode(nil); d != nil {
 		t.Fatal("nil should not decode")
+	}
+}
+
+func TestEncodeFromJSON_RoundTrip(t *testing.T) {
+	// Build a Pod, encode it via roundTrip helper, decode via Decode,
+	// edit the JSON, re-encode via EncodeFromJSON, decode again — final
+	// object must reflect the edit.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "edit-me", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "main", Image: "nginx:1.0"}},
+			NodeName:   "node-a",
+		},
+	}
+	bytesV1 := roundTrip(t, pod, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"})
+
+	d1 := Decode(bytesV1)
+	if d1 == nil || d1.JSON == "" {
+		t.Fatalf("initial decode failed: %+v", d1)
+	}
+
+	// Edit: swap image to nginx:2.0 by replacing the substring in the
+	// pretty JSON the user would see in the SPA.
+	edited := strings.Replace(d1.JSON, "nginx:1.0", "nginx:2.0", 1)
+	if edited == d1.JSON {
+		t.Fatal("edit substitution had no effect — check setup")
+	}
+
+	out, err := EncodeFromJSON(d1.APIVersion, d1.Kind, edited)
+	if err != nil {
+		t.Fatalf("EncodeFromJSON: %v", err)
+	}
+
+	d2 := Decode(out)
+	if d2 == nil || d2.JSON == "" {
+		t.Fatalf("re-decode failed: %+v", d2)
+	}
+	if !strings.Contains(d2.JSON, "nginx:2.0") {
+		t.Errorf("round-trip lost edit, got: %s", d2.JSON)
+	}
+	if strings.Contains(d2.JSON, "nginx:1.0") {
+		t.Errorf("old value leaked through: %s", d2.JSON)
+	}
+	// Sanity: name + namespace preserved.
+	if d2.Name != "edit-me" || d2.Namespace != "default" {
+		t.Errorf("metadata lost: %q / %q", d2.Namespace, d2.Name)
+	}
+}
+
+func TestEncodeFromJSON_BadKind(t *testing.T) {
+	_, err := EncodeFromJSON("example.com/v1", "Frobnicator", `{"metadata":{"name":"x"}}`)
+	if err == nil {
+		t.Fatal("expected error for unknown Kind")
+	}
+}
+
+func TestEncodeFromJSON_BadJSON(t *testing.T) {
+	_, err := EncodeFromJSON("v1", "Pod", `{this is not json}`)
+	if err == nil {
+		t.Fatal("expected JSON parse error")
 	}
 }
 

@@ -62,7 +62,7 @@ export function HistoryDrawer({
             exit={{ x: "100%" }}
             transition={{ type: "spring", stiffness: 350, damping: 40 }}
             onMouseDown={(e) => e.stopPropagation()}
-            className="absolute right-0 top-0 bottom-0 w-[min(820px,100vw)] flex flex-col"
+            className="absolute right-0 top-0 bottom-0 w-[min(1100px,100vw)] flex flex-col shadow-2xl"
             style={{ background: "rgb(var(--panel))", borderLeft: "1px solid rgb(var(--line))" }}
           >
             <header
@@ -200,7 +200,7 @@ function VersionRow({
           )}
         </div>
       ) : (
-        <pre className="mt-2 font-mono text-xs whitespace-pre panel-2 p-2 rounded-md max-h-48 overflow-auto">
+        <pre className="mt-2 font-mono text-xs whitespace-pre-wrap break-words panel-2 p-2 rounded-md max-h-48 overflow-auto">
           {display || <span className="muted">(empty)</span>}
         </pre>
       )}

@@ -430,6 +430,27 @@ export const api = {
     return (r.kvs ?? []).map((kv) => kv.key);
   },
 
+  // K8s-aware write: server re-encodes the edited JSON back into the
+  // wire format etcd expects (protobuf for built-in Kinds via the
+  // linked k8s.io/api scheme; minified JSON for CRDs). Compare-and-set
+  // guarded so concurrent kubectl writes can't be silently clobbered.
+  putK8s: async (
+    id: string,
+    body: { key: string; format: string; apiVersion: string; kind: string; json: string; baseRev: number },
+  ): Promise<{ status: "ok" | "conflict"; revision?: number }> => {
+    const res = await fetch(`/api/clusters/${encodeURIComponent(id)}/put-k8s`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 409) return { status: "conflict" };
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText);
+      throw new Error(text || `${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  },
+
   // Folder counts under a prefix at a given depth. Used by the SPA to
   // tag tree folders that have more keys than the current range loaded
   // (e.g. you set limit=10k on a 27k-key cluster — `pods` has 12k keys
