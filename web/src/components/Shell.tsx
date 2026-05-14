@@ -23,6 +23,8 @@ import {
   Shield as ShieldIcon,
   Globe,
   Lock,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "../lib/cn";
 import { ClusterPicker } from "./ClusterPicker";
@@ -65,10 +67,34 @@ export function Shell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("hashchange", close);
   }, []);
 
+  // Desktop sidebar collapse — operators on 13–14" laptops, half-window
+  // setups, or anyone with a wide cluster page benefit from reclaiming
+  // 200px. Persisted so the choice survives reloads.
+  const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("etcd-ui:nav-collapsed") === "1";
+  });
+  const toggleNav = () => {
+    setNavCollapsed((v) => {
+      const next = !v;
+      try {
+        window.localStorage.setItem("etcd-ui:nav-collapsed", next ? "1" : "0");
+      } catch {
+        /* ignore quota / private-mode */
+      }
+      return next;
+    });
+  };
+
   const items = simpleMode ? NAV.filter((n) => !n.advanced) : NAV;
 
   return (
-    <div className="h-full grid lg:grid-cols-[260px_1fr] grid-rows-[56px_1fr]">
+    <div
+      className={cn(
+        "h-full grid grid-rows-[56px_1fr]",
+        navCollapsed ? "lg:grid-cols-[56px_1fr]" : "lg:grid-cols-[260px_1fr]",
+      )}
+    >
       <header
         className="lg:col-span-2 flex items-center justify-between gap-2 sm:gap-3 px-3 sm:px-4 border-b"
         style={{ borderColor: "rgb(var(--line))" }}
@@ -133,15 +159,37 @@ export function Shell({ children }: { children: ReactNode }) {
 
       {/* Desktop sidebar */}
       <aside
-        className="hidden lg:block row-start-2 border-r overflow-y-auto"
+        className="hidden lg:flex lg:flex-col row-start-2 border-r overflow-hidden"
         style={{ borderColor: "rgb(var(--line))" }}
       >
-        <Nav
-          items={items}
-          t={t}
-          onPaletteOpen={() => setPaletteOpen(true)}
-          onShortcutsOpen={() => window.dispatchEvent(new Event("etcd-ui:show-shortcuts"))}
-        />
+        <div className="flex-1 overflow-y-auto">
+          <Nav
+            items={items}
+            t={t}
+            collapsed={navCollapsed}
+            onPaletteOpen={() => setPaletteOpen(true)}
+            onShortcutsOpen={() => window.dispatchEvent(new Event("etcd-ui:show-shortcuts"))}
+          />
+        </div>
+        <button
+          onClick={toggleNav}
+          // Collapse toggle pinned to the bottom of the sidebar.
+          // Mirrors what VS Code, GitLab and Grafana do — bottom-left
+          // chevron, label hidden when collapsed.
+          className="border-t flex items-center gap-2 px-3 py-2 text-xs muted hover:text-current transition-colors"
+          style={{ borderColor: "rgb(var(--line))" }}
+          aria-label={navCollapsed ? "Expand navigation" : "Collapse navigation"}
+          title={navCollapsed ? "Expand (more room → keys, editor)" : "Collapse (icons only)"}
+        >
+          {navCollapsed ? (
+            <ChevronRight className="w-4 h-4 mx-auto" />
+          ) : (
+            <>
+              <ChevronLeft className="w-4 h-4" />
+              <span>Collapse</span>
+            </>
+          )}
+        </button>
       </aside>
 
       {/* Mobile off-canvas */}
@@ -197,70 +245,76 @@ function Nav({
   onPick,
   onPaletteOpen,
   onShortcutsOpen,
+  collapsed,
 }: {
   items: NavItem[];
   t: (k: string) => string;
   onPick?: () => void;
   onPaletteOpen?: () => void;
   onShortcutsOpen?: () => void;
+  // When true, render an icons-only rail. Labels move to `title`
+  // attribute so hover still surfaces them. The Tips block is hidden
+  // because it doesn't survive without text.
+  collapsed?: boolean;
 }) {
   return (
     <>
-      <nav className="p-3 flex flex-col gap-0.5">
+      <nav className={cn("flex flex-col gap-0.5", collapsed ? "p-2" : "p-3")}>
         {items.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
             onClick={onPick}
+            title={collapsed ? t(label) : undefined}
             className={({ isActive }) =>
               cn(
-                "nav-item group flex items-center gap-3 h-9 px-3 rounded-lg text-sm transition cursor-pointer",
+                "nav-item group flex items-center h-9 rounded-lg text-sm transition cursor-pointer",
+                collapsed ? "justify-center px-0" : "gap-3 px-3",
                 isActive ? "nav-item-active text-current" : "muted",
               )
             }
           >
             <Icon className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
-            <span className="truncate">{t(label)}</span>
+            {!collapsed && <span className="truncate">{t(label)}</span>}
           </NavLink>
         ))}
       </nav>
 
-      <div className="mx-3 mt-6 pt-5 border-t" style={{ borderColor: "rgb(var(--line))" }}>
-        <div className="px-1 pb-3 text-[11px] uppercase tracking-wider muted">Tips</div>
-        <ul className="pb-6 text-xs muted space-y-1">
-          {(
-            [
-              {
-                keys: ["⌘K", "/"],
-                label: "command palette",
-                fn: () => onPaletteOpen?.(),
-              },
-              {
-                keys: ["?"],
-                label: "shortcuts help",
-                fn: () => onShortcutsOpen?.(),
-              },
-            ] as const
-          ).map(({ keys, label, fn }) => (
-            <li key={label}>
-              <button
-                onClick={fn}
-                // w-fit + tight padding → click area hugs the content, not
-                // the whole sidebar width. Solid hover via the global
-                // .soft-hover utility so the feedback is visible.
-                className="inline-flex items-center gap-2 px-1.5 py-1 -mx-1.5 rounded-md soft-hover hover:text-current"
-              >
-                <span className="inline-flex items-center gap-1">
-                  {keys.map((k, i) => (
-                    <span key={i} className="kbd">{k}</span>
-                  ))}
-                </span>
-                <span>{label}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
+      {!collapsed && (
+        <div className="mx-3 mt-6 pt-5 border-t" style={{ borderColor: "rgb(var(--line))" }}>
+          <div className="px-1 pb-3 text-[11px] uppercase tracking-wider muted">Tips</div>
+          <ul className="pb-6 text-xs muted space-y-1">
+            {(
+              [
+                {
+                  keys: ["⌘K", "/"],
+                  label: "command palette",
+                  fn: () => onPaletteOpen?.(),
+                },
+                {
+                  keys: ["?"],
+                  label: "shortcuts help",
+                  fn: () => onShortcutsOpen?.(),
+                },
+              ] as const
+            ).map(({ keys, label, fn }) => (
+              <li key={label}>
+                <button
+                  onClick={fn}
+                  className="inline-flex items-center gap-2 px-1.5 py-1 -mx-1.5 rounded-md soft-hover hover:text-current"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {keys.map((k, i) => (
+                      <span key={i} className="kbd">{k}</span>
+                    ))}
+                  </span>
+                  <span>{label}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </>
   );
 }
