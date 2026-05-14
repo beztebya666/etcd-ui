@@ -49,11 +49,13 @@ jobs:
         with: { go-version: "1.25", cache: true }
       - uses: golangci/golangci-lint-action@v6
         with:
-          # v1.61 ships an x/tools fork that can't decode Go 1.25's
-          # `sync/atomic` export-data format ("unsupported version: 2"),
-          # which cascaded into spurious typecheck errors. v1.64
-          # rebased onto Go-1.25-aware x/tools fixes both.
-          version: v1.64
+          # v1.64 itself is built with go1.24 and rejects every typecheck
+          # in a repo whose go.mod says `go 1.25` ('package requires
+          # newer Go version go1.25 (application built with go1.24)').
+          # v2.x is built with Go 1.25 — config schema is migrated in
+          # .golangci.yml. --concurrency=2 + GOMEMLIMIT keep us under
+          # the 7 GB runner cap on the k8s.io/api type-check graph.
+          version: v2.1
           args: --timeout=8m --concurrency=2
 
   web:
