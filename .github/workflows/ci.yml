@@ -164,10 +164,14 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
+          # Keep the tag list minimal: just `latest` (on main pushes)
+          # and `v0.1` (the app's current semantic version). The earlier
+          # config also published per-branch, per-sha and per-tag images,
+          # which cluttered GHCR with 40+ versions per week — not useful
+          # since `latest` is always the current main and proper
+          # release tags only land via the `release (goreleaser)` job.
           tags: |
-            type=ref,event=branch
-            type=ref,event=tag
-            type=sha,prefix=
+            type=raw,value=v0.1
             type=raw,value=latest,enable={{is_default_branch}}
       - uses: docker/build-push-action@v6
         id: build
