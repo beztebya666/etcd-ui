@@ -72,8 +72,8 @@ ASCII fallback if Mermaid isn't rendered:
 | `supervisor`| —     | Boots & supervises the others; PID 1; forwards signals; restart on crash      |
 | `gateway`   | 8080  | SPA + REST + WS/SSE multiplex; fans out to internals; emits audit events; OIDC/Basic/Session; federation hub fan-out |
 | `cluster`   | 7001  | Auto-discovery (12 sources), connection pool, member health, alert manager, persisted `/alerts/log` |
-| `kv`        | 7002  | Range/Put/Delete, bulk, txn, watch (WS+SSE), put-cas (3-way merge), history, diff, K8s protobuf decode via `k8s.io/api` (519 Kinds) |
-| `ops`       | 7003  | Snapshot, JSON restore, leases (K8s-enriched), compact, defrag, alarms, RBAC, metrics, etcdctl shell, etcdutl validate, locks playground, move-leader |
+| `kv`        | 7002  | Range/Put/Delete, bulk, txn, watch (WS+SSE), put-cas (3-way merge), put-k8s (typed edit round-trip), history, diff, K8s protobuf decode+encode via `k8s.io/api` (519 Kinds), `/range/counts` for tree truncation hints |
+| `ops`       | 7003  | Snapshot, JSON restore, leases (K8s-enriched holder identity + renew time), compact, defrag, alarms, RBAC, metrics, etcdctl shell, etcdutl snapshot validate, locks playground, **move-leader** (auto-routes to current leader endpoint) |
 | `audit`     | 7004  | Append-only JSONL log + in-memory ring + SSE live tail + ACL history snapshots |
 
 ### Auto-discovery
@@ -132,7 +132,7 @@ Once discovered, every cluster looks identical to the UI.
 - 📦 **Offline `etcdutl`** — also bundled. Validate a `.db` snapshot before halting your quorum: upload, get back hash/revision/total-keys/size, decide whether the restore is safe (Maintenance → "Validate snapshot").
 - 🔒 **Distributed-lock playground** — `/locks` page mints lease-bound keys under a chosen prefix, exactly like `clientv3/concurrency.Mutex`. Watch holder + waiters live, force-release on demand, debug leader-election scenarios without writing a Go program.
 - 👑 **Move-leader in one click** — Cluster page surfaces a `↑ Make leader` button on every follower, with a confirm modal. Routes the call to the current leader endpoint automatically so a 3-node cluster doesn't return "not leader" half the time.
-- 🧬 **Full K8s decode** — `kv` links `k8s.io/api` (519 Kinds across 19 groups). Pod / Service / Deployment / ConfigMap / Secret / etc. round-trip through their generated Go structs into pretty JSON — no more hex dumps for the bulk of your registry. CRDs stored as JSON are pretty-printed directly; CRDs stored as proto without a typed shim fall back to metadata-only preview.
+- 🧬 **Full K8s decode + edit** — `kv` links `k8s.io/api` (519 Kinds across 19 groups). Pod / Service / Deployment / ConfigMap / Secret / etc. round-trip through their generated Go structs into pretty JSON — no more hex dumps for the bulk of your registry. **Edit the structured JSON in place**, hit Save: server validates the edit against the Go type (`DisallowUnknownFields` catches `spec.imag` vs `spec.image` typos before they reach etcd), re-marshals to protobuf, wraps in `runtime.Unknown`, writes under a CAS guard. Round-trip is provably lossless — same bits in, same bits out. CRDs stored as JSON are pretty-printed and edited directly; CRDs stored as proto without a typed shim fall back to metadata-only preview + raw hex.
 - 🌐 **API protocol badge** — each cluster card shows whether the gateway speaks **gRPC (v3)** or **HTTP (v2)** to it, with the etcd server version next to it. Auto-detected from `/version` on first contact.
 
 ### Friendly

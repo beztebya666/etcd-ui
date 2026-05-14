@@ -7,6 +7,21 @@ Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **K8s decode + edit** — `kv` links `k8s.io/api` (519 Kinds across 19 groups). Pods, Services, Deployments, ConfigMaps, etc. round-trip from kube-apiserver protobuf through their generated Go types into pretty JSON. `POST /clusters/{id}/put-k8s` accepts the edited JSON, validates it against the typed schema with `DisallowUnknownFields`, re-marshals to protobuf, wraps in `runtime.Unknown`, writes under CAS guard. See `docs/features/K8S_DECODE.md`. ([cmd/kv/put_k8s.go], [internal/k8sdecode/encode.go])
+- **CRDT-lite for KV edits** — `POST /clusters/{id}/put-cas` snapshots `modRevision` at edit-open; if a concurrent write advanced the revision, the server runs a line-level diff3 weave merge (`internal/threewaymerge`). Clean merges go through; conflicts surface in a 3-pane resolver UI. See `docs/features/CRDT.md`.
+- **Federation hub** — `ETCD_UI_PEERS` aggregates remote etcd-ui instances into one view; per-peer health + cluster roster; OIDC `client_credentials` for the peer-to-peer hop; `system:peer:<id>` / `peer:<id>/<user>` ACL principals with dedicated `/federation` page.
+- **Distributed-lock playground** — `/locks` page mints lease-bound keys under a chosen prefix matching `clientv3/concurrency.Mutex` semantics. See `docs/features/LOCKS.md`.
+- **Move-leader from UI** — `POST /clusters/{id}/move-leader` on the Cluster page with confirm modal. Auto-routes to the current leader endpoint (probes `Status` per endpoint, picks the one reporting itself as leader, `SetEndpoints` for the call). Member IDs travel as JSON strings (`idStr`) so JS `Number` precision loss doesn't target the wrong member.
+- **Tree truncation hints** — `POST /clusters/{id}/range/counts` returns per-folder key counts at a configurable depth; the SPA marks `▸ pods 8.2k/12.3k` on folders whose loaded subset is smaller than the cluster's actual.
+- **Live leader-change timeline** — alerts service persists every observed leader flip to `$DATA_DIR/cluster-events.jsonl`; `/api/alerts/log` returns the history across SPA reloads and pod restarts. Surfaced on the Metrics page with `from → to` member IDs and a "why we can't tell the cause" explainer pointing at the right etcd metrics.
+- **etcdutl bundled** — `etcdctl` + offline `etcdutl` both ship in the image. `POST /clusters/{id}/etcdutl/snapshot-status` accepts an uploaded `.db` and returns hash/revision/totalKey/totalSize from real `etcdutl snapshot status`. UI in Maintenance → Validate snapshot.
+- **K8s lease enrichment** — `/leases` endpoint Get's each lease's first attached key, decodes it as a `coordination.k8s.io/v1.Lease`, and surfaces holderIdentity + role classification (`kubelet · worker-3`, `kube-scheduler`, namespaced controllers).
+- **Protocol badge** — auto-detected `gRPC v3` / `HTTP v2` chip on Dashboard + Cluster pages, with the cluster's reported server version next to it.
+- **Resizable left pane** in Browser with rAF-throttled drag handle; collapsible sidebar (full ↔ 56px icons-only) persisted in localStorage.
+- **Production-grade autocomplete** ([web/src/components/Autocomplete.tsx]) on prefix/watch inputs: async provider, top-N+Load more, Tab to insert, ↑↓ navigation, hit highlighting.
+- **Grafana-style chart hover** — vertical guide + dot + timestamp/value caption on Metrics charts.
+- **Clipboard fallback** — `navigator.clipboard.writeText` only works in secure contexts (HTTPS / localhost). Helper falls back to `execCommand('copy')` on HTTP origins so copy buttons stop being silently broken on `http://10.x.x.x:8080`.
+- **Prism syntax highlighting** — replaced homebrew regex tokeniser with `prismjs` + a custom dark theme (keys cyan, strings amber, numbers violet, bool/null rose). +6 KB gzipped.
 - HTTP Basic + OIDC Bearer auth, signed-cookie sessions, `/api/auth/login | logout | me`.
 - Security headers (CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy, optional HSTS).
 - Per-cluster read-only enforcement (`ETCD_UI_READONLY_CLUSTERS`, per-cluster `readOnly` in YAML).

@@ -55,11 +55,27 @@ ENV ETCD_UI_WEB_ROOT=/app/web \
     ETCD_UI_CLUSTER_ADDR=127.0.0.1:7001 \
     ETCD_UI_KV_ADDR=127.0.0.1:7002 \
     ETCD_UI_OPS_ADDR=127.0.0.1:7003 \
+    ETCD_UI_DATA_DIR=/app/data \
     ETCDCTL_API=3
+
+# OCI image labels — surfaced by `docker inspect` and most registries.
+# Title/description/url stay opinionated; source/version are filled at
+# build time via --label or via goreleaser metadata in CI.
+LABEL org.opencontainers.image.title="etcd-ui" \
+      org.opencontainers.image.description="Universal etcd UI: multi-cluster KV browser, CRDT 3-way merge, K8s decode+edit, federation hub, locks playground, move-leader, etcdctl + etcdutl bundled." \
+      org.opencontainers.image.source="https://github.com/beztebya666/etcd-ui" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.vendor="etcd-ui" \
+      org.opencontainers.image.documentation="https://github.com/beztebya666/etcd-ui#readme"
 
 USER etcdui
 EXPOSE 8080
 WORKDIR /app
+# /app/data holds the audit log (audit.jsonl), persisted cluster events
+# (cluster-events.jsonl), ACL history snapshots, scheduled snapshots,
+# and any UI-added cluster registrations. Mount a volume here in prod
+# so this state survives container restarts.
+VOLUME ["/app/data"]
 
 HEALTHCHECK --interval=20s --timeout=3s --start-period=10s --retries=3 \
     CMD wget -qO- http://127.0.0.1:8080/healthz || exit 1
