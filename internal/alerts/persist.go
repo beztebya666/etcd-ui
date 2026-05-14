@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
-	"time"
 )
 
 // PersistentLog is a tiny append-only ring of cluster events backed by a
@@ -176,6 +175,3 @@ func (l *PersistentLog) DrainTo(w io.Writer) error {
 	return nil
 }
 
-// approxAge is a tiny helper that says "in this many minutes" — used by
-// the SPA via the Time field, not exposed in the API directly.
-func approxAge(t time.Time) time.Duration { return time.Since(t) }

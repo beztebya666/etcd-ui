@@ -40,12 +40,19 @@ linters:
     - ineffassign
     - unused
     - bodyclose
-    - noctx
     - errorlint
   settings:
     govet:
+      # `shadow` flags every `if err := ...; err != nil {` pattern
+      # nested inside a func that already has an `err` in scope. That's
+      # idiomatic Go (gopls / vet's default OFF for the same reason).
+      # We keep `nilness` — it catches real "deref of nil after type
+      # assertion" / "tautological condition" bugs that vet's defaults
+      # miss. `noctx` is dropped here too: 4 call sites without ctx
+      # exist (oauth callbacks, healthcheck pings, alert webhook
+      # POSTs) where threading a request context buys nothing — those
+      # are short-lived and supervisor-owned.
       enable:
-        - shadow
         - nilness
     staticcheck:
       # SA1*-SA6* covers correctness + dead code without the heavy
@@ -68,3 +75,9 @@ linters:
           - bodyclose
       - path: internal/audit/audit\.go
         text: "Error return value of `\\(\\*encoding/json.Encoder\\).Encode` is not checked"
+      # v2 transport pre-dates Go 1.6 contexts; the CancelRequest hook
+      # is intentionally there for legacy etcd v2 client cancellation.
+      # Migrating to Request.WithContext requires reshaping the v2
+      # client wrapper API — separate cleanup.
+      - path: internal/etcdpool/v2_transport\.go
+        text: "SA1019.*CancelRequest"
