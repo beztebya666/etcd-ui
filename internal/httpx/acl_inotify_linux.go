@@ -4,6 +4,7 @@ package httpx
 
 import (
 	"context"
+	"sync"
 
 	"golang.org/x/sys/unix"
 )
@@ -13,39 +14,54 @@ import (
 // a symlink swap (atomic rename of the parent), so we watch the directory
 // for MOVED_TO / CREATE / MODIFY events targeting our filename.
 //
-// Returns true if inotify is up and running; false on any setup failure
-// (no inotify available, EPERM on AddWatch, etc.) — caller then leaves
-// polling on as the fallback.
-func (a *ACL) watchNative(ctx context.Context) bool {
+// Returns (ok, done):
+//   - ok is true if inotify is up and running; false on any setup failure
+//     (no inotify available, EPERM on AddWatch, etc.) — caller then leaves
+//     polling on as the fallback.
+//   - done is closed when the inotify goroutine has fully exited (fd
+//     closed, watch removed). Callers MUST drain `done` before letting
+//     the watched directory be unlinked — otherwise tests racing with
+//     `t.TempDir()` cleanup see EBADF / "bad file descriptor" on the
+//     RemoveAll. Nil when ok=false.
+func (a *ACL) watchNative(ctx context.Context) (bool, <-chan struct{}) {
 	a.mu.RLock()
 	path := a.path
 	a.mu.RUnlock()
 	if path == "" {
-		return false
+		return false, nil
 	}
 	dir, file := splitDirBase(path)
 
 	fd, err := unix.InotifyInit1(unix.IN_CLOEXEC)
 	if err != nil {
-		return false
+		return false, nil
 	}
 	mask := uint32(unix.IN_MODIFY | unix.IN_CLOSE_WRITE | unix.IN_MOVED_TO | unix.IN_CREATE)
 	wd, err := unix.InotifyAddWatch(fd, dir, mask)
 	if err != nil {
 		unix.Close(fd)
-		return false
+		return false, nil
 	}
 
+	done := make(chan struct{})
 	go func() {
-		defer unix.Close(fd)
-		defer unix.InotifyRmWatch(fd, uint32(wd))
+		defer close(done)
+		// Single-shot close so the interrupter goroutine and the
+		// outer defer can both call without double-close noise.
+		var closeOnce sync.Once
+		closeFd := func() {
+			closeOnce.Do(func() {
+				_, _ = unix.InotifyRmWatch(fd, uint32(wd))
+				_ = unix.Close(fd)
+			})
+		}
+		defer closeFd()
 
-		// Goroutine to interrupt the blocking Read when ctx cancels.
+		// Interrupter: closes the fd when ctx cancels, which makes
+		// the blocking Read below return EBADF and the loop exit.
 		go func() {
 			<-ctx.Done()
-			// Closing fd interrupts the Read with EBADF; the goroutine below
-			// then exits cleanly.
-			_ = unix.Close(fd)
+			closeFd()
 		}()
 
 		buf := make([]byte, 4096)
@@ -67,7 +83,7 @@ func (a *ACL) watchNative(ctx context.Context) bool {
 			}
 		}
 	}()
-	return true
+	return true, done
 }
 
 type inotifyEvent struct {

@@ -226,7 +226,7 @@ func (a *ACL) Watch(ctx context.Context, period time.Duration) {
 	// Prefer inotify on Linux. If it lights up successfully, we still keep
 	// a slow safety-net poll (every 60s) so a missed event or NFS-style
 	// inotify-blind mount can't strand us with stale rules.
-	native := a.watchNative(ctx)
+	native, inotifyDone := a.watchNative(ctx)
 	if period <= 0 {
 		if native {
 			period = 60 * time.Second
@@ -239,6 +239,17 @@ func (a *ACL) Watch(ctx context.Context, period time.Duration) {
 	for {
 		select {
 		case <-ctx.Done():
+			// Drain the inotify goroutine before returning. Without this,
+			// tests that share a TempDir with the watcher race against
+			// the inotify fd close and the dir RemoveAll, surfacing as
+			// "unlinkat: bad file descriptor". 2s budget — way more than
+			// the closeFd -> Read EBADF roundtrip needs in practice.
+			if inotifyDone != nil {
+				select {
+				case <-inotifyDone:
+				case <-time.After(2 * time.Second):
+				}
+			}
 			return
 		case <-t.C:
 			a.checkReload()

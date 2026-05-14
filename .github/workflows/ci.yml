@@ -65,40 +65,47 @@ jobs:
   integration:
     name: integration tests (real etcd)
     runs-on: ubuntu-latest
-    services:
-      etcd:
-        image: quay.io/coreos/etcd:v3.5.15
-        ports: ["2379:2379", "2380:2380"]
-        # IMPORTANT: ETCD_NAME must match the left-hand side of every
-        # entry in ETCD_INITIAL_CLUSTER. We say `etcd=http://etcd:2380`
-        # below, so the node has to identify itself as `etcd`. Without
-        # this, etcd defaults to `default` and refuses to start with
-        # "couldn't find local name 'default' in the initial cluster
-        # configuration".
-        options: >-
-          -e ETCD_NAME=etcd
-          -e ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
-          -e ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
-          -e ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
-          -e ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd:2380
-          -e ETCD_INITIAL_CLUSTER=etcd=http://etcd:2380
-          -e ETCD_INITIAL_CLUSTER_TOKEN=test
-          --health-cmd "etcdctl endpoint health"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: "1.25", cache: true }
+      # Run etcd ourselves instead of via GH `services:` — the etcd image
+      # is distroless (no shell, no busybox), so GH's --health-cmd can't
+      # find `etcdctl` and the service is stuck "unhealthy" forever.
+      # Spawning via plain `docker run` + explicit TCP wait is simpler
+      # and faster (no 50s health-grace wait).
+      - name: start etcd
+        run: |
+          docker run -d --name etcd-it \
+            -p 2379:2379 -p 2380:2380 \
+            -e ETCD_NAME=etcd \
+            -e ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379 \
+            -e ETCD_ADVERTISE_CLIENT_URLS=http://127.0.0.1:2379 \
+            -e ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380 \
+            -e ETCD_INITIAL_ADVERTISE_PEER_URLS=http://127.0.0.1:2380 \
+            -e ETCD_INITIAL_CLUSTER=etcd=http://127.0.0.1:2380 \
+            -e ETCD_INITIAL_CLUSTER_TOKEN=test \
+            quay.io/coreos/etcd:v3.5.15
+      - name: wait for etcd
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:2379/version >/dev/null; then
+              echo "etcd up after $i tries"
+              curl -s http://127.0.0.1:2379/version
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "etcd never came up" >&2
+          docker logs etcd-it >&2 || true
+          exit 1
       - run: go mod tidy
       - name: integration tests against real etcd
         env:
-          # Tests look for `ETCD_UI_TEST_ENDPOINT`, not the upstream
-          # `ETCD_ENDPOINTS` env var. Setting both keeps any legacy
-          # `-tags=integration` paths happy too.
-          ETCD_UI_TEST_ENDPOINT: http://localhost:2379
-          ETCD_ENDPOINTS: http://localhost:2379
+          # Tests look for `ETCD_UI_TEST_ENDPOINT`. Setting `ETCD_ENDPOINTS`
+          # too keeps any legacy paths happy.
+          ETCD_UI_TEST_ENDPOINT: http://127.0.0.1:2379
+          ETCD_ENDPOINTS: http://127.0.0.1:2379
         run: go test ./... -count=1 -timeout 3m
 
   e2e:
