@@ -161,6 +161,13 @@ func TestS3_SinglePut_RoundTrips(t *testing.T) {
 }
 
 func TestS3_PutLarge_SwitchesToMultipart(t *testing.T) {
+	if testing.Short() {
+		// CI runs with -short and skips this — pushing 5 GiB through the
+		// HTTP mock (even with a pattern reader, no allocs) takes minutes
+		// on a GitHub runner and was tripping the 90s test timeout. Local
+		// `go test` (without -short) still exercises the multipart path.
+		t.Skip("skipping 5 GiB multipart test under -short")
+	}
 	u, mock, cleanup := newUploader(t)
 	defer cleanup()
 
