@@ -35,19 +35,26 @@ jobs:
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest
+    env:
+      # GH free runners have 7 GB RAM. staticcheck with `checks: all`
+      # across our k8s.io/api dependency graph OOM-killed the runner
+      # mid-analysis. GOMEMLIMIT keeps Go's GC aggressive enough that
+      # we stay under the cgroup cap; --concurrency=2 caps the parallel
+      # package analysers so the resident set doesn't spike either.
+      GOMEMLIMIT: "6500MiB"
+      GOGC: "50"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: "1.25", cache: true }
       - uses: golangci/golangci-lint-action@v6
         with:
-          # v1.61 still ships an x/tools fork that can't decode Go 1.25's
+          # v1.61 ships an x/tools fork that can't decode Go 1.25's
           # `sync/atomic` export-data format ("unsupported version: 2"),
-          # which then cascades into spurious `undefined: chi` /
-          # `undefined: yaml` typecheck errors across the repo. v1.64
+          # which cascaded into spurious typecheck errors. v1.64
           # rebased onto Go-1.25-aware x/tools fixes both.
           version: v1.64
-          args: --timeout=5m
+          args: --timeout=8m --concurrency=2
 
   web:
     name: web build + vitest

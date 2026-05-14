@@ -2,6 +2,40 @@
 
 > Universal, fast, beautiful UI for any etcd cluster — Kubernetes, Patroni, standalone or DIY. Ships as a single Docker image with a microservice backend.
 
+## Demo
+
+K8s edit round-trip: open a Pod under `/registry/pods/...` → server
+decodes the protobuf through `k8s.io/api` into structured JSON → click
+**Edit**, change the container image to `v9.9.9-DEMO` → **Done editing**
+→ **Save** → server validates the edited JSON against the typed Go
+struct (catches field-name typos), re-marshals to protobuf, wraps in
+`runtime.Unknown`, writes to etcd under a CAS guard. The whole flow is
+~14 seconds.
+
+![K8s edit demo](docs/screenshots/k8s-edit.gif)
+
+## Screenshots
+
+Real screenshots against a live etcd 3.5.15 seeded with realistic
+Kubernetes objects (Pods, Deployments, Services, ConfigMaps, Jobs). The
+capture script lives at [`scripts/screenshots/capture.mjs`](scripts/screenshots/capture.mjs)
+— Playwright + Chromium, idempotent, points at any running etcd-ui.
+
+| | |
+| --- | --- |
+| **Dashboard** — every cluster you've connected with live health, leader, db size, key count, revision sparkline | ![Dashboard](docs/screenshots/dashboard.png) |
+| **Browser tree + Pod fully decoded** — `kv` links `k8s.io/api`, so the binary protobuf in `/registry/pods/...` round-trips into pretty JSON in the editor with proper Prism syntax highlighting. Edit it, hit Save — server re-encodes back to protobuf under a CAS guard. | ![Pod decoded](docs/screenshots/browser-pod-decoded.png) |
+| **Cluster** — members, raft term, leader, db size, key count + a `Make leader` button on every follower with a confirmation modal (routes to the current leader endpoint automatically) | ![Cluster](docs/screenshots/cluster.png) |
+| **Live watch** — every PUT/DELETE under a prefix in real time, with per-event K8s preview chips, filter pills, expandable raw body | ![Watch](docs/screenshots/watch.png) |
+| **Metrics** — Grafana-style chart hover with vertical guide + value-at-cursor; leader-change log with `from → to` member IDs and a "why we can't tell the cause" explainer | ![Metrics](docs/screenshots/metrics.png) |
+| **Heatmap** — write activity aggregated by prefix bucket, live | ![Heatmap](docs/screenshots/heatmap.png) |
+| **Distributed locks** — acquire and queue lease-bound locks under a prefix; same primitive `clientv3/concurrency.Mutex` uses; open two tabs to watch fair queuing | ![Locks](docs/screenshots/locks.png) |
+| **Maintenance** — snapshot, restore, compact, defrag, etcdutl snapshot validation, K8s-enriched leases with holder identity + renew time | ![Maintenance](docs/screenshots/maintenance.png) |
+| **Audit** — every mutation through the gateway, JSONL-persisted, SSE-tailable | ![Audit](docs/screenshots/audit.png) |
+| **Permissions** — matrix view + inline editor with three-column diff preview before commit; federation principals (`system:peer:*`, `peer:*/*`) get a globe badge and a "federation only" filter | ![Permissions](docs/screenshots/permissions.png) |
+| **Federation hub** — aggregate remote etcd-ui peers, each card surfaces the ACL rules governing that peer at this hub + a "manage" deep-link into the matrix scoped to that peer | ![Federation](docs/screenshots/federation.png) |
+| **Settings** — cluster registry editor, themes, language, version footer | ![Settings](docs/screenshots/settings.png) |
+
 ## Why
 
 Existing etcd UIs are either tied to one platform (`kubectl`, Patroni admin) or look like 2014. This is **one polished UI for any etcd**, regardless of where it lives. Connect once — get cluster health, KV browser, live watch streams, snapshots, lease management, members, alarms, RBAC, audit log and a command palette to do anything in two keystrokes.

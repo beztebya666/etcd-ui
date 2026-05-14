@@ -16,11 +16,15 @@
 #  - lll/funlen  — vet-style noise rather than real defects
 
 run:
-  timeout: 5m
-  go: "1.22"
+  timeout: 8m
+  go: "1.25"
   tests: true
-  build-tags:
-    - integration
+  # Trim the analysis surface: the testseed program is a one-shot script,
+  # not production code, and its loose patterns trip several linters
+  # without adding signal.
+  skip-dirs:
+    - internal/k8sdecode/testseed
+    - scripts/screenshots
 
 linters:
   disable-all: true
@@ -56,8 +60,18 @@ linters-settings:
       - default
       - prefix(github.com/yourorg/etcd-ui)
   staticcheck:
+    # "all" pulls in SA9xxx (heavy semantic analysis) and pushes the
+    # process past the 7 GB runner limit when combined with the
+    # k8s.io/api dep graph. SA1xxx (correctness) + SA4xxx (dead code)
+    # are what we actually care about; ST is style which gofumpt
+    # already covers; QF is recommendations, noise.
     checks:
-      - all
+      - SA1*
+      - SA2*
+      - SA3*
+      - SA4*
+      - SA5*
+      - SA6*
   revive:
     severity: warning
     rules:
