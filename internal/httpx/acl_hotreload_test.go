@@ -10,6 +10,31 @@ import (
 	"time"
 )
 
+// atomicWrite mimics how kube-apiserver / K8s ConfigMap mounts replace
+// files in production: write a temp file in the same directory, then
+// rename onto the target. The rename is atomic at the filesystem level,
+// so the watcher never observes a half-written file (which would
+// produce a spurious -1 "invalid JSON" reload event mid-test under -race
+// where goroutine scheduling magnifies the window). Tests that use this
+// only fire ONE reload callback — the one that sees the final content —
+// matching what production behavior actually is.
+func atomicWrite(t *testing.T, path string, data []byte) {
+	t.Helper()
+	tmp, err := os.CreateTemp(filepath.Dir(path), "acl-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // startWatch spawns a.Watch in a goroutine and registers a t.Cleanup
 // that cancels the context AND waits for Watch to return before
 // t.TempDir's deferred RemoveAll runs. Without this the watcher can be
@@ -68,12 +93,10 @@ func TestACL_HotReload_SwapsRulesAfterWrite(t *testing.T) {
 	// have 1s resolution on ModTime).
 	time.Sleep(1100 * time.Millisecond)
 
-	if err := os.WriteFile(path, []byte(`[
+	atomicWrite(t, path, []byte(`[
 		{"user":"alice","cluster":"prod","access":"admin"},
 		{"user":"bob","cluster":"*","access":"write"}
-	]`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	]`))
 
 	select {
 	case n := <-reloads:
@@ -115,10 +138,12 @@ func TestACL_HotReload_BadJSONPreservesPrevious(t *testing.T) {
 	startWatch(t, a, 50*time.Millisecond)
 
 	time.Sleep(1100 * time.Millisecond)
-	// Drop garbage on disk.
-	if err := os.WriteFile(path, []byte(`not json at all`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// Drop garbage on disk — atomic rename matches what an editor's
+	// "save" actually does, and crucially means the watcher sees a
+	// well-defined "before" and "after" rather than catching the file
+	// mid-write (which would also trip the -1 callback we're testing,
+	// muddying the assertion).
+	atomicWrite(t, path, []byte(`not json at all`))
 
 	// Wait for the failure signal.
 	deadline := time.After(3 * time.Second)
@@ -171,7 +196,17 @@ func TestACL_HotReload_ConcurrentReaders(t *testing.T) {
 			if i%2 == 1 {
 				body = `[{"user":"u","cluster":"c","access":"write"}]`
 			}
-			_ = os.WriteFile(path, []byte(body), 0o644)
+			// Atomic rename matches production K8s ConfigMap behaviour
+			// and stops the watcher from observing a half-written file
+			// (which would briefly emit invalid-JSON reload events,
+			// muddy the race trace).
+			tmp, err := os.CreateTemp(filepath.Dir(path), "acl-race-*")
+			if err != nil {
+				return
+			}
+			_, _ = tmp.Write([]byte(body))
+			_ = tmp.Close()
+			_ = os.Rename(tmp.Name(), path)
 			time.Sleep(50 * time.Millisecond)
 		}
 	}()

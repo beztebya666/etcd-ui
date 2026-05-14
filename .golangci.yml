@@ -17,14 +17,14 @@
 
 run:
   timeout: 8m
-  go: "1.25"
+  # NOTE: must be ≤ the Go version golangci-lint itself was built with.
+  # v1.64 is built with go 1.24; setting `go: 1.25` here makes lint
+  # refuse to start with "the Go language version (go1.24) used to
+  # build golangci-lint is lower than the targeted Go version (1.25)".
+  # 1.24 still covers all language features our codebase uses — lint
+  # operates on AST, doesn't need the runtime semantics of 1.25.
+  go: "1.24"
   tests: true
-  # Trim the analysis surface: the testseed program is a one-shot script,
-  # not production code, and its loose patterns trip several linters
-  # without adding signal.
-  skip-dirs:
-    - internal/k8sdecode/testseed
-    - scripts/screenshots
 
 linters:
   disable-all: true
@@ -84,6 +84,12 @@ linters-settings:
         disabled: true
 
 issues:
+  # Trim the analysis surface: the testseed program is a one-shot
+  # script, not production code, and its loose patterns trip several
+  # linters without adding signal.
+  exclude-dirs:
+    - internal/k8sdecode/testseed
+    - scripts/screenshots
   exclude-rules:
     # Tests pull in stdlib packages where we don't care about errcheck noise on
     # cleanup calls (resp.Body.Close, os.RemoveAll, etc.).
