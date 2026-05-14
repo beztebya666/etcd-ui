@@ -57,7 +57,7 @@ jobs:
           # match in .golangci.yml. --concurrency=2 + GOMEMLIMIT keep
           # the type-check graph (k8s.io/api is heavy) under the 7 GB
           # runner cap.
-          version: v2.1
+          version: v2.4
           args: --timeout=8m --concurrency=2
 
   web:
