@@ -89,7 +89,7 @@ changelog:
 
 release:
   github:
-    owner: yourorg
+    owner: beztebya666
     name: etcd-ui
-  draft: true
+  draft: false
   prerelease: auto
