@@ -56,7 +56,7 @@ func TestLongestCommonDotSuffix(t *testing.T) {
 				"node-aa-1",
 				"node-bb-1",
 			},
-			want: "", // shared "-ms-1" doesn't start at a dot
+			want: "", // shared "-1" doesn't start at a dot
 		},
 		{
 			name:  "trailing dots collapse",

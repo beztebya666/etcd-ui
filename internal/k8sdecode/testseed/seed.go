@@ -46,17 +46,17 @@ func seedAll(ctx context.Context, cli *clientv3.Client) {
 	replicas := int32(3)
 	pods := []*corev1.Pod{
 		makePod("shop", "orders-api-7c8b5f6d4-x9k2p",
-			"registry.example.com/shop/accounts-api:v3.14.2", "worker-3.internal.example", "10.244.5.27"),
+			"registry.example.com/shop/orders-api:v3.14.2", "node-3.internal.example", "10.244.5.27"),
 		makePod("shop", "catalog-api-65d9c-zptkj",
-			"registry.example.com/shop/cards-api:v2.8.1", "worker-1.internal.example", "10.244.1.12"),
+			"registry.example.com/shop/catalog-api:v2.8.1", "node-1.internal.example", "10.244.1.12"),
 		makePod("shop", "checkout-api-78f4c-mvxqq",
-			"registry.example.com/shop/payments-api:v4.0.3", "worker-2.internal.example", "10.244.2.45"),
+			"registry.example.com/shop/checkout-api:v4.0.3", "node-2.internal.example", "10.244.2.45"),
 		makePod("kube-system", "kube-scheduler-master-1",
 			"registry.k8s.io/kube-scheduler:v1.30.4", "master-1", "10.244.0.5"),
 		makePod("kube-system", "coredns-7db6d8ff4d-jbpkk",
-			"registry.k8s.io/coredns/coredns:v1.11.1", "worker-1.internal.example", "10.244.1.3"),
+			"registry.k8s.io/coredns/coredns:v1.11.1", "node-1.internal.example", "10.244.1.3"),
 		makePod("monitoring", "prometheus-server-0",
-			"quay.io/prometheus/prometheus:v2.55.0", "worker-2.internal.example", "10.244.2.99"),
+			"quay.io/prometheus/prometheus:v2.55.0", "node-2.internal.example", "10.244.2.99"),
 	}
 	for _, p := range pods {
 		key := fmt.Sprintf("/registry/pods/%s/%s", p.Namespace, p.Name)
@@ -64,8 +64,8 @@ func seedAll(ctx context.Context, cli *clientv3.Client) {
 	}
 
 	deployments := []*appsv1.Deployment{
-		makeDeployment("shop", "orders-api", &replicas, "registry.example.com/shop/accounts-api:v3.14.2"),
-		makeDeployment("shop", "catalog-api", &replicas, "registry.example.com/shop/cards-api:v2.8.1"),
+		makeDeployment("shop", "orders-api", &replicas, "registry.example.com/shop/orders-api:v3.14.2"),
+		makeDeployment("shop", "catalog-api", &replicas, "registry.example.com/shop/catalog-api:v2.8.1"),
 		makeDeployment("monitoring", "prometheus-server", &replicas, "quay.io/prometheus/prometheus:v2.55.0"),
 	}
 	for _, d := range deployments {
@@ -86,7 +86,7 @@ func seedAll(ctx context.Context, cli *clientv3.Client) {
 
 	configmaps := []*corev1.ConfigMap{
 		makeConfigMap("shop", "orders-config", map[string]string{
-			"DATABASE_URL": "postgres://demo-db:5432/accounts",
+			"DATABASE_URL": "postgres://demo-db:5432/orders",
 			"LOG_LEVEL":    "info",
 			"FEATURE_X":    "enabled",
 		}),

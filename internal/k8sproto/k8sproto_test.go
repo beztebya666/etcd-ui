@@ -14,7 +14,7 @@ func TestDecode_Pod(t *testing.T) {
 		0x12, 0x03, 'P', 'o', 'd',
 		0x12, 0x1c,
 		0x0a, 0x1a,
-		0x0a, 0x0c, 'a', 'b', 'm', '-', 'f', 'r', 'o', 'n', 't', 'e', 'n', 'd',
+		0x0a, 0x0c, 'w', 'e', 'b', '-', 'f', 'r', 'o', 'n', 't', 'e', 'n', 'd',
 		0x1a, 0x0a, 'p', 'r', 'o', 'd', 'u', 'c', 't', 'i', 'o', 'n',
 	}
 	p := Decode(v)
